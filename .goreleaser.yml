@@ -1,0 +1,110 @@
+# GoReleaser configuration for flux - a Go library for reactive configuration synchronization
+
+version: 2
+
+project_name: flux
+
+dist: .dist
+
+builds:
+  # Skip building binaries for the main library since it's a library package
+  - skip: true
+
+archives:
+  - id: source
+    files:
+      - "*.go"
+      - "go.mod"
+      - "go.sum"
+      - "LICENSE"
+      - "README.md"
+      - "Makefile"
+      - ".golangci.yml"
+    name_template: "{{ .ProjectName }}_{{ .Version }}_source"
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  use: github
+  sort: asc
+  abbrev: 7
+  groups:
+    - title: "Features"
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: "Bug Fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: "Performance"
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: "Refactoring"
+      regexp: '^.*?refactor(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: "Documentation"
+      regexp: '^.*?docs?(\([[:word:]]+\))??!?:.+$'
+      order: 4
+    - title: "Testing"
+      regexp: '^.*?test(\([[:word:]]+\))??!?:.+$'
+      order: 5
+    - title: "Maintenance"
+      regexp: '^.*?chore(\([[:word:]]+\))??!?:.+$'
+      order: 6
+    - title: "Other Changes"
+      order: 999
+  filters:
+    exclude:
+      - "^Merge"
+      - "^merge"
+      - "^wip"
+      - "^WIP"
+
+release:
+  github:
+    owner: zoobzio
+    name: flux
+
+  name_template: "{{ .ProjectName }} v{{ .Version }}"
+  draft: false
+  prerelease: auto
+  mode: append
+
+  header: |
+    ## flux v{{ .Version }}
+
+    Reactive configuration synchronization for Go.
+
+    ### Installation
+
+    ```bash
+    go get github.com/zoobzio/flux@v{{ .Version }}
+    ```
+
+    ### Requirements
+    - Go 1.23 or higher
+
+  footer: |
+    ---
+
+    **Full Documentation:** https://github.com/zoobzio/flux/tree/v{{ .Version }}
+
+    Thanks to all contributors!
+
+announce:
+  skip: true
+
+snapshot:
+  version_template: "{{ .Tag }}-next"
+
+source:
+  enabled: true
+  name_template: "{{ .ProjectName }}_{{ .Version }}_source"
+
+git:
+  tag_sort: -version:refname
+  ignore_tags:
+    - ".*-rc.*"
+    - ".*-beta.*"
+    - ".*-alpha.*"

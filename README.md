@@ -1,29 +1,64 @@
 # flux
 
-A Go library providing synchronization infrastructure for wrapping callbacks with rate limiting, circuit breaking, retries, and other resilience patterns.
+[![CI Status](https://github.com/zoobzio/flux/workflows/CI/badge.svg)](https://github.com/zoobzio/flux/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/zoobzio/flux/graph/badge.svg?branch=main)](https://codecov.io/gh/zoobzio/flux)
+[![Go Report Card](https://goreportcard.com/badge/github.com/zoobzio/flux)](https://goreportcard.com/report/github.com/zoobzio/flux)
+[![CodeQL](https://github.com/zoobzio/flux/workflows/CodeQL/badge.svg)](https://github.com/zoobzio/flux/security/code-scanning)
+[![Go Reference](https://pkg.go.dev/badge/github.com/zoobzio/flux.svg)](https://pkg.go.dev/github.com/zoobzio/flux)
+[![License](https://img.shields.io/github/license/zoobzio/flux)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/zoobzio/flux)](go.mod)
+[![Release](https://img.shields.io/github/v/release/zoobzio/flux)](https://github.com/zoobzio/flux/releases)
 
-## Overview
+Reactive configuration synchronization for Go.
 
-flux follows a builder pattern similar to zlog, allowing services to compose synchronization capabilities around their callbacks. It is designed to be embedded within services that need to manage synchronization, not run as a standalone service.
+Watch external sources, validate changes, and apply them safely with automatic rollback on failure.
 
-## Features
+## The Problem
 
-- **Rate Limiting**: Control request rates with configurable burst capacity
-- **Circuit Breaking**: Prevent cascading failures with automatic recovery
-- **Retry Logic**: Automatic retries with configurable attempts and backoff
-- **Timeout Protection**: Prevent hanging operations
-- **Error Handling**: Custom error pipelines for logging and recovery
-- **Filtering**: Process events conditionally
-- **Stream Processing**: Handle continuous event streams
-- **Batch Processing**: Process events in batches for efficiency
-- **Type Safety**: Full generic type support
-- **Composable**: Chain multiple capabilities using builder pattern
+Configuration reload is tricky:
 
-## Installation
+```go
+// Option A: Static config - requires restart
+var config = loadConfig()
 
-```bash
-go get github.com/zoobzio/flux
+// Option B: Live reload - no safety net
+func reloadConfig() {
+    data, _ := os.ReadFile("config.yaml")
+    yaml.Unmarshal(data, &config) // Hope it's valid!
+}
 ```
+
+**Problems:**
+- Invalid config corrupts application state
+- No rollback when bad config breaks the app
+- No visibility into configuration health
+
+## The Solution
+
+Flux provides `Capacitor` - a reactive primitive that watches, validates, and applies configuration changes safely:
+
+```go
+type Config struct {
+    Port int `yaml:"port" validate:"min=1,max=65535"`
+}
+
+capacitor := flux.New[Config](
+    flux.NewFileWatcher("config.yaml"),
+    func(cfg Config) error {
+        // Only called with valid, parsed config
+        return app.SetConfig(cfg)
+    },
+)
+
+capacitor.Start(ctx)
+```
+
+**Wins:**
+- Automatic YAML/JSON unmarshaling via struct tags
+- Automatic validation via [go-playground/validator](https://github.com/go-playground/validator) tags
+- Invalid config rejected, previous retained
+- Clear state machine (Healthy/Degraded/Empty)
+- Capitan signals for observability
 
 ## Quick Start
 
@@ -34,207 +69,257 @@ import (
     "context"
     "log"
     "time"
-    
+
     "github.com/zoobzio/flux"
 )
 
+type Config struct {
+    Port        int    `yaml:"port" json:"port" validate:"min=1,max=65535"`
+    DatabaseURL string `yaml:"database_url" json:"database_url" validate:"required"`
+    MaxConns    int    `yaml:"max_conns" json:"max_conns" validate:"min=1"`
+}
+
 func main() {
-    // Create a sync wrapper with desired capabilities
-    sync := flux.NewSync("user-processor", processUser).
-        WithRateLimit(100, 10).                    // 100 RPS, burst 10
-        WithCircuitBreaker(5, 30*time.Second).     // Open after 5 failures
-        WithRetry(3).                              // Retry up to 3 times
-        WithTimeout(5*time.Second)                 // 5 second timeout
-    
-    // Process events through the sync pipeline
-    event := flux.Event[User]{
-        ID:        "user-123",
-        Data:      user,
-        Source:    "user-service",
-        Timestamp: time.Now(),
-    }
-    
-    result, err := sync.Process(ctx, event)
-    if err != nil {
-        log.Printf("Processing failed: %v", err)
-    }
-}
+    capacitor := flux.New[Config](
+        flux.NewFileWatcher("/etc/myapp/config.yaml"),
 
-func processUser(ctx context.Context, event flux.Event[User]) error {
-    // Your processing logic here
-    return updateDatabase(ctx, event.Data)
+        // Callback: Only called with valid, parsed config
+        func(cfg Config) error {
+            // Update your application
+            log.Printf("Config applied: port=%d", cfg.Port)
+            return nil
+        },
+
+        flux.WithDebounce(100*time.Millisecond),
+    )
+
+    ctx := context.Background()
+    if err := capacitor.Start(ctx); err != nil {
+        log.Printf("Initial load failed: %v", err)
+    }
+
+    // Check state anytime
+    log.Println(capacitor.State()) // "healthy", "degraded", or "empty"
+
+    // Get current config
+    if cfg, ok := capacitor.Current(); ok {
+        log.Printf("Port: %d", cfg.Port)
+    }
 }
 ```
 
-## Usage Examples
+Flux automatically:
+1. Detects YAML or JSON format (by `{` or `[` prefix)
+2. Unmarshals to your struct via `yaml`/`json` tags
+3. Validates using `validate` struct tags
+4. Only calls your callback if everything passes
 
-### Basic Synchronization
+To enforce a specific format instead of auto-detection:
 
 ```go
-// Simple sync with error handling
-sync := flux.NewSync("handler", func(ctx context.Context, event flux.Event[Data]) error {
-    log.Printf("Processing: %s", event.ID)
-    return process(event.Data)
+flux.WithJSON()  // Only accept JSON - YAML will fail
+flux.WithYAML()  // Always parse as YAML (also accepts JSON)
+```
+
+## State Machine
+
+```
+┌─────────┐   valid    ┌─────────┐
+│ Loading │──────────▶│ Healthy │◀──┐
+└─────────┘            └─────────┘   │
+     │                      │        │
+     │ invalid              │ invalid│ valid
+     ▼                      ▼        │
+┌─────────┐            ┌─────────┐───┘
+│  Empty  │            │ Degraded│
+└─────────┘            └─────────┘
+```
+
+- **Loading** - Initial state, no config yet
+- **Healthy** - Valid config applied
+- **Degraded** - Last change failed, previous config still active
+- **Empty** - Initial load failed, no valid config ever obtained
+
+## Multi-Source Composition
+
+Combine multiple configuration sources with `Compose`:
+
+```go
+type Config struct {
+    Port    int    `yaml:"port" validate:"min=1,max=65535"`
+    Timeout int    `yaml:"timeout" validate:"min=0"`
+    Debug   bool   `yaml:"debug"`
+}
+
+capacitor := flux.Compose[Config](
+    // Reducer receives all parsed configs - you merge and return result
+    func(configs []Config) (Config, error) {
+        merged := configs[0]  // Start with defaults
+
+        // Override with file config
+        if configs[1].Port != 0 {
+            merged.Port = configs[1].Port
+        }
+        if configs[1].Timeout != 0 {
+            merged.Timeout = configs[1].Timeout
+        }
+
+        // Env config has highest priority
+        if configs[2].Port != 0 {
+            merged.Port = configs[2].Port
+        }
+        merged.Debug = configs[2].Debug
+
+        return merged, nil
+    },
+    defaultsWatcher,  // Lowest priority
+    fileWatcher,      // Medium priority
+    envWatcher,       // Highest priority
+)
+```
+
+Each source emits raw bytes. Flux parses and validates each one independently, then passes the slice of parsed configs to your reducer. The merged result is stored and accessible via `Current()`.
+
+## Observability
+
+Flux emits [capitan](https://github.com/zoobzio/capitan) signals for monitoring:
+
+```go
+capitan.Hook(flux.CapacitorStateChanged, func(_ context.Context, e *capitan.Event) {
+    oldState, _ := flux.KeyOldState.From(e)
+    newState, _ := flux.KeyNewState.From(e)
+    log.Printf("Config state: %s → %s", oldState, newState)
+})
+
+capitan.Hook(flux.CapacitorValidationFailed, func(_ context.Context, e *capitan.Event) {
+    errMsg, _ := flux.KeyError.From(e)
+    log.Printf("Config rejected: %s", errMsg)
 })
 ```
 
-### Rate Limiting
+Available signals:
+- `CapacitorStarted` - Watching started
+- `CapacitorStopped` - Watching stopped
+- `CapacitorStateChanged` - State transition
+- `CapacitorChangeReceived` - Raw change from watcher
+- `CapacitorTransformFailed` - Unmarshal error
+- `CapacitorValidationFailed` - Validation error
+- `CapacitorApplyFailed` - Callback error
+- `CapacitorApplySucceeded` - Config applied
 
-```go
-// Limit to 100 requests per second with burst of 10
-sync := flux.NewSync("api", handler).
-    WithRateLimit(100, 10)
+## Installation
 
-// Drop events instead of waiting when rate limited
-sync := flux.NewSync("analytics", handler).
-    WithRateLimitDrop(1000, 100)
+```bash
+go get github.com/zoobzio/flux
 ```
 
-### Circuit Breaking
+Requirements: Go 1.23+
+
+## Custom Watchers
+
+Implement the `Watcher` interface for custom sources:
 
 ```go
-// Open circuit after 5 consecutive failures, try recovery after 30s
-sync := flux.NewSync("external-api", handler).
-    WithCircuitBreaker(5, 30*time.Second)
-```
-
-### Retry Strategies
-
-```go
-// Simple retry - immediate retry up to 3 times
-sync := flux.NewSync("db", handler).
-    WithRetry(3)
-
-// Exponential backoff - delays double each retry
-sync := flux.NewSync("api", handler).
-    WithBackoff(5, time.Second) // 1s, 2s, 4s, 8s, 16s
-```
-
-### Filtering
-
-```go
-// Only process specific events
-sync := flux.NewSync("filtered", handler).
-    WithFilter(func(ctx context.Context, e flux.Event[Data]) bool {
-        return e.Source == "important" && 
-               time.Since(e.Timestamp) < 5*time.Minute
-    })
-```
-
-### Composition
-
-```go
-// Combine multiple capabilities
-sync := flux.NewSync("resilient", handler).
-    WithRateLimit(50, 5).
-    WithCircuitBreaker(10, time.Minute).
-    WithRetry(3).
-    WithTimeout(10*time.Second)
-```
-
-### Error Handling
-
-```go
-// Create error handler using pipz
-errorHandler := pipz.Effect("error-handler", func(ctx context.Context, err *pipz.Error[flux.Event[Data]]) error {
-    log.Printf("Failed event %s: %v", err.InputData.ID, err.Err)
-    return sendToDeadLetter(err.InputData)
-})
-
-// Attach to sync
-sync := flux.NewSync("main", handler).
-    WithErrorHandler(errorHandler)
-```
-
-## Stream Processing
-
-For continuous event streams:
-
-```go
-// Create a stream processor
-stream := flux.NewStream("events", sync).
-    WithThrottle(50.0).      // 50 events/sec max
-    WithBuffer(1000).        // Buffer up to 1000 events
-    WithFilter(func(e flux.Event[Data]) bool {
-        return e.Priority == "high"
-    }).
-    WithErrorStrategy(flux.ErrorChannel)  // Send errors to channel
-
-// Process events from channel
-events := make(chan flux.Event[Data])
-go stream.Process(ctx, events)
-
-// Monitor errors
-for err := range stream.ErrorChannel() {
-    log.Printf("Stream error: %v", err)
+type Watcher interface {
+    Watch(ctx context.Context) (<-chan []byte, error)
 }
 ```
 
-## Batch Processing
-
-For efficient batch operations:
+Example polling watcher:
 
 ```go
-// Create batch handler
-batchSync := flux.NewBatchSync("bulk-insert", func(ctx context.Context, batch []flux.Event[User]) error {
-    // Extract users from events
-    users := make([]User, len(batch))
-    for i, event := range batch {
-        users[i] = event.Data
-    }
-    return db.BulkInsert(ctx, users)
-}).
-    WithRetry(3).
-    WithTimeout(30*time.Second)
-
-// Create batch stream
-stream := flux.NewBatchStream("user-stream", batchSync).
-    WithBatcher(100, time.Second)  // Batch up to 100 or every second
-
-// Process events
-stream.Process(ctx, userEvents)
-```
-
-## Integration Pattern
-
-flux is designed to be embedded in services that need synchronization:
-
-```go
-type Service struct {
-    syncs map[string]*flux.Sync[Record]
+type PollingWatcher struct {
+    fetch    func(context.Context) ([]byte, error)
+    interval time.Duration
 }
 
-func (s *Service) Initialize() {
-    // Configure different sync patterns for different use cases
-    s.syncs["users"] = flux.NewSync("users", s.handleUser).
-        WithRateLimit(100, 10).
-        WithCircuitBreaker(5, 30*time.Second)
-    
-    s.syncs["orders"] = flux.NewSync("orders", s.handleOrder).
-        WithRateLimit(50, 5).
-        WithBackoff(5, time.Second).
-        WithConcurrency(10)
-}
+func (w *PollingWatcher) Watch(ctx context.Context) (<-chan []byte, error) {
+    ch := make(chan []byte)
+    go func() {
+        defer close(ch)
+        ticker := time.NewTicker(w.interval)
+        defer ticker.Stop()
 
-func (s *Service) ProcessUpdate(table string, record Record) error {
-    sync := s.syncs[table]
-    event := flux.Event[Record]{
-        ID:        record.ID,
-        Data:      record,
-        Source:    table,
-        Timestamp: time.Now(),
-    }
-    
-    _, err := sync.Process(context.Background(), event)
-    return err
+        for {
+            select {
+            case <-ctx.Done():
+                return
+            case <-ticker.C:
+                if data, err := w.fetch(ctx); err == nil {
+                    ch <- data
+                }
+            }
+        }
+    }()
+    return ch, nil
 }
 ```
 
-## Built on
+## Testing
 
-- [pipz](https://github.com/zoobzio/pipz) - For composable data processing pipelines
-- [streamz](https://github.com/zoobzio/streamz) - For channel-based stream processing
+Flux provides `ChannelWatcher` and sync mode for deterministic testing:
+
+```go
+func TestConfig(t *testing.T) {
+    ch := make(chan []byte, 1)
+    watcher := flux.NewSyncChannelWatcher(ch)
+
+    var applied TestConfig
+    capacitor := flux.New[TestConfig](
+        watcher,
+        func(cfg TestConfig) error {
+            applied = cfg
+            return nil
+        },
+        flux.WithSyncMode(), // Synchronous processing
+    )
+
+    // Send config and verify immediately
+    ch <- []byte("port: 8080\nhost: localhost")
+    capacitor.Start(context.Background())
+
+    assert.Equal(t, 8080, applied.Port)
+    assert.Equal(t, flux.StateHealthy, capacitor.State())
+}
+```
+
+## Validation
+
+Flux uses [go-playground/validator](https://github.com/go-playground/validator) for struct tag validation. Common tags:
+
+```go
+type Config struct {
+    Port     int    `validate:"min=1,max=65535"`      // Range
+    Host     string `validate:"required"`              // Required
+    URL      string `validate:"url"`                   // URL format
+    Email    string `validate:"email"`                 // Email format
+    Timeout  int    `validate:"gte=0,lte=300"`        // Greater/less than
+    LogLevel string `validate:"oneof=debug info warn"` // Enum
+}
+```
+
+For complex validation (e.g., field dependencies), return an error from your callback:
+
+```go
+capacitor := flux.New[Config](
+    watcher,
+    func(cfg Config) error {
+        // Business rule: checkout requires cart
+        if cfg.EnableCheckout && !cfg.EnableCart {
+            return errors.New("checkout requires cart")
+        }
+        return app.SetConfig(cfg)
+    },
+)
+```
+
+## Contributing
+
+Contributions welcome! Please ensure:
+- Tests pass: `go test ./...`
+- Code is formatted: `go fmt ./...`
+- No lint errors: `golangci-lint run`
 
 ## License
 
-[Add your license here]
+MIT License - see [LICENSE](LICENSE) file for details.
