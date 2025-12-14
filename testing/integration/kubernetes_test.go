@@ -172,10 +172,8 @@ func TestCapacitor_Kubernetes_ConfigMap_LiveUpdate(t *testing.T) {
 	updateCh <- data2
 
 	// Wait for debounced apply
-	time.Sleep(200 * time.Millisecond)
-
-	if applyCount.Load() != 2 {
-		t.Errorf("expected 2 applies, got %d", applyCount.Load())
+	if !waitFor(t, time.Second, func() bool { return applyCount.Load() == 2 }) {
+		t.Fatalf("expected 2 applies, got %d", applyCount.Load())
 	}
 
 	applied := lastApplied.Load().(appConfig)
@@ -233,10 +231,8 @@ func TestCapacitor_Kubernetes_InvalidUpdateRetainsPrevious(t *testing.T) {
 	updateCh <- invalidData
 
 	// Wait for processing
-	time.Sleep(200 * time.Millisecond)
-
-	if capacitor.State() != flux.StateDegraded {
-		t.Errorf("expected StateDegraded, got %s", capacitor.State())
+	if !waitFor(t, time.Second, func() bool { return capacitor.State() == flux.StateDegraded }) {
+		t.Fatalf("expected StateDegraded, got %s", capacitor.State())
 	}
 
 	// Previous config should still be current

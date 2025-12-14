@@ -131,10 +131,8 @@ func TestCapacitor_Redis_LiveUpdate(t *testing.T) {
 	}
 
 	// Wait for notification and debounced apply
-	time.Sleep(500 * time.Millisecond)
-
-	if applyCount.Load() != 2 {
-		t.Errorf("expected 2 applies, got %d", applyCount.Load())
+	if !waitFor(t, 2*time.Second, func() bool { return applyCount.Load() == 2 }) {
+		t.Fatalf("expected 2 applies, got %d", applyCount.Load())
 	}
 
 	applied := lastApplied.Load().(appConfig)
@@ -181,10 +179,8 @@ func TestCapacitor_Redis_InvalidUpdateRetainsPrevious(t *testing.T) {
 	}
 
 	// Wait for processing
-	time.Sleep(500 * time.Millisecond)
-
-	if capacitor.State() != flux.StateDegraded {
-		t.Errorf("expected StateDegraded, got %s", capacitor.State())
+	if !waitFor(t, 2*time.Second, func() bool { return capacitor.State() == flux.StateDegraded }) {
+		t.Fatalf("expected StateDegraded, got %s", capacitor.State())
 	}
 
 	// Previous config should still be current
@@ -237,10 +233,9 @@ func TestCapacitor_Redis_RecoveryFromDegraded(t *testing.T) {
 	if err := client.Set(ctx, key, invalidData, 0).Err(); err != nil {
 		t.Fatalf("failed to set invalid value: %v", err)
 	}
-	time.Sleep(500 * time.Millisecond)
 
-	if capacitor.State() != flux.StateDegraded {
-		t.Errorf("expected StateDegraded, got %s", capacitor.State())
+	if !waitFor(t, 2*time.Second, func() bool { return capacitor.State() == flux.StateDegraded }) {
+		t.Fatalf("expected StateDegraded, got %s", capacitor.State())
 	}
 
 	// Write valid again
@@ -252,10 +247,9 @@ func TestCapacitor_Redis_RecoveryFromDegraded(t *testing.T) {
 	if err := client.Set(ctx, key, validData, 0).Err(); err != nil {
 		t.Fatalf("failed to set valid value: %v", err)
 	}
-	time.Sleep(500 * time.Millisecond)
 
-	if capacitor.State() != flux.StateHealthy {
-		t.Errorf("expected StateHealthy after recovery, got %s", capacitor.State())
+	if !waitFor(t, 2*time.Second, func() bool { return capacitor.State() == flux.StateHealthy }) {
+		t.Fatalf("expected StateHealthy after recovery, got %s", capacitor.State())
 	}
 
 	current, _ := capacitor.Current()

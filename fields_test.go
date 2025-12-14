@@ -39,10 +39,3 @@ func TestKeyDebounce(t *testing.T) {
 		t.Errorf("expected key 'debounce', got %q", field.Key().Name())
 	}
 }
-
-func TestKeyWatcherType(t *testing.T) {
-	field := KeyWatcherType.Field("file")
-	if field.Key().Name() != "watcher_type" {
-		t.Errorf("expected key 'watcher_type', got %q", field.Key().Name())
-	}
-}

@@ -118,10 +118,8 @@ func TestCapacitor_FileWatcher_LiveUpdate(t *testing.T) {
 	}
 
 	// Wait for debounced apply
-	time.Sleep(200 * time.Millisecond)
-
-	if applyCount.Load() != 2 {
-		t.Errorf("expected 2 applies, got %d", applyCount.Load())
+	if !waitFor(t, time.Second, func() bool { return applyCount.Load() == 2 }) {
+		t.Fatalf("expected 2 applies, got %d", applyCount.Load())
 	}
 
 	applied := lastApplied.Load().(appConfig)
@@ -171,11 +169,8 @@ func TestCapacitor_FileWatcher_InvalidUpdateRetainsPrevious(t *testing.T) {
 	}
 
 	// Wait for debounced processing
-	time.Sleep(200 * time.Millisecond)
-
-	// Should be degraded
-	if capacitor.State() != flux.StateDegraded {
-		t.Errorf("expected StateDegraded, got %s", capacitor.State())
+	if !waitFor(t, time.Second, func() bool { return capacitor.State() == flux.StateDegraded }) {
+		t.Fatalf("expected StateDegraded, got %s", capacitor.State())
 	}
 
 	// Previous config should still be current
@@ -229,10 +224,9 @@ func TestCapacitor_FileWatcher_RecoveryFromDegraded(t *testing.T) {
 	if err := os.WriteFile(path, invalidData, 0o600); err != nil {
 		t.Fatalf("failed to write invalid config: %v", err)
 	}
-	time.Sleep(200 * time.Millisecond)
 
-	if capacitor.State() != flux.StateDegraded {
-		t.Errorf("expected StateDegraded, got %s", capacitor.State())
+	if !waitFor(t, time.Second, func() bool { return capacitor.State() == flux.StateDegraded }) {
+		t.Fatalf("expected StateDegraded, got %s", capacitor.State())
 	}
 
 	// Write valid again
@@ -244,10 +238,9 @@ func TestCapacitor_FileWatcher_RecoveryFromDegraded(t *testing.T) {
 	if err := os.WriteFile(path, validData, 0o600); err != nil {
 		t.Fatalf("failed to write valid config: %v", err)
 	}
-	time.Sleep(200 * time.Millisecond)
 
-	if capacitor.State() != flux.StateHealthy {
-		t.Errorf("expected StateHealthy after recovery, got %s", capacitor.State())
+	if !waitFor(t, time.Second, func() bool { return capacitor.State() == flux.StateHealthy }) {
+		t.Fatalf("expected StateHealthy after recovery, got %s", capacitor.State())
 	}
 
 	current, _ := capacitor.Current()
@@ -287,11 +280,10 @@ func TestCapacitor_FileWatcher_MalformedJSON(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{not valid json"), 0o600); err != nil {
 		t.Fatalf("failed to write malformed config: %v", err)
 	}
-	time.Sleep(200 * time.Millisecond)
 
 	// Should be degraded due to unmarshal failure
-	if capacitor.State() != flux.StateDegraded {
-		t.Errorf("expected StateDegraded, got %s", capacitor.State())
+	if !waitFor(t, time.Second, func() bool { return capacitor.State() == flux.StateDegraded }) {
+		t.Fatalf("expected StateDegraded, got %s", capacitor.State())
 	}
 
 	// Original config retained

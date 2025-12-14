@@ -1,10 +1,6 @@
 package flux
 
-import (
-	"context"
-
-	"github.com/zoobzio/pipz"
-)
+import "context"
 
 // Request carries configuration data through the processing pipeline.
 // It provides access to both the previous and current configuration values,
@@ -22,10 +18,6 @@ type Request[T Validator] struct {
 	// This is useful for debugging or logging purposes.
 	Raw []byte
 }
-
-// Terminal is the final processing stage in a Capacitor pipeline.
-// It receives the Request after all middleware has processed it.
-type Terminal[T Validator] pipz.Chainable[*Request[T]]
 
 // Reducer merges multiple configuration sources into a single configuration.
 // It receives the previous merged values (nil on first call) and the current
