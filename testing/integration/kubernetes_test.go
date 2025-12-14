@@ -153,8 +153,7 @@ func TestCapacitor_Kubernetes_ConfigMap_LiveUpdate(t *testing.T) {
 			lastApplied.Store(cfg)
 			return nil
 		},
-		flux.WithDebounce[appConfig](50*time.Millisecond),
-	)
+	).Debounce(50 * time.Millisecond)
 
 	if err := capacitor.Start(ctx); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -219,8 +218,7 @@ func TestCapacitor_Kubernetes_InvalidUpdateRetainsPrevious(t *testing.T) {
 		func(_ context.Context, _, _ appConfig) error {
 			return nil
 		},
-		flux.WithDebounce[appConfig](50*time.Millisecond),
-	)
+	).Debounce(50 * time.Millisecond)
 
 	if err := capacitor.Start(ctx); err != nil {
 		t.Fatalf("Start() error = %v", err)

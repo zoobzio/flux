@@ -93,8 +93,7 @@ func TestCapacitor_FileWatcher_LiveUpdate(t *testing.T) {
 			lastApplied.Store(cfg)
 			return nil
 		},
-		flux.WithDebounce[appConfig](50*time.Millisecond),
-	)
+	).Debounce(50 * time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -152,8 +151,7 @@ func TestCapacitor_FileWatcher_InvalidUpdateRetainsPrevious(t *testing.T) {
 			lastApplied.Store(cfg)
 			return nil
 		},
-		flux.WithDebounce[appConfig](50*time.Millisecond),
-	)
+	).Debounce(50 * time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -213,8 +211,7 @@ func TestCapacitor_FileWatcher_RecoveryFromDegraded(t *testing.T) {
 		func(_ context.Context, _, _ appConfig) error {
 			return nil
 		},
-		flux.WithDebounce[appConfig](50*time.Millisecond),
-	)
+	).Debounce(50 * time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -277,8 +274,7 @@ func TestCapacitor_FileWatcher_MalformedJSON(t *testing.T) {
 		func(_ context.Context, _, _ appConfig) error {
 			return nil
 		},
-		flux.WithDebounce[appConfig](50*time.Millisecond),
-	)
+	).Debounce(50 * time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
