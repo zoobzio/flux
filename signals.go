@@ -54,4 +54,11 @@ var (
 		"flux.capacitor.apply.succeeded",
 		"Config applied successfully",
 	)
+
+	// CapacitorCircuitBroken is emitted when the circuit breaker trips due to
+	// consecutive failures reaching the configured threshold.
+	CapacitorCircuitBroken = capitan.NewSignal(
+		"flux.capacitor.circuit.broken",
+		"Circuit breaker tripped",
+	)
 )

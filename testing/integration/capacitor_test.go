@@ -3,6 +3,8 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -10,11 +12,23 @@ import (
 	"time"
 
 	"github.com/zoobzio/flux"
+	"github.com/zoobzio/flux/pkg/file"
 )
 
 type appConfig struct {
-	Feature string `json:"feature" yaml:"feature" validate:"required"`
-	Limit   int    `json:"limit" yaml:"limit" validate:"min=0"`
+	Feature string `json:"feature" yaml:"feature"`
+	Limit   int    `json:"limit" yaml:"limit"`
+}
+
+// Validate implements the flux.Validator interface.
+func (c appConfig) Validate() error {
+	if c.Feature == "" {
+		return errors.New("feature is required")
+	}
+	if c.Limit < 0 {
+		return fmt.Errorf("limit must be >= 0, got %d", c.Limit)
+	}
+	return nil
 }
 
 func TestCapacitor_FileWatcher_InitialLoad(t *testing.T) {
@@ -33,8 +47,8 @@ func TestCapacitor_FileWatcher_InitialLoad(t *testing.T) {
 	var applied appConfig
 
 	capacitor := flux.New[appConfig](
-		flux.NewFileWatcher(path),
-		func(cfg appConfig) error {
+		file.New(path),
+		func(_ context.Context, _, cfg appConfig) error {
 			applied = cfg
 			return nil
 		},
@@ -73,13 +87,13 @@ func TestCapacitor_FileWatcher_LiveUpdate(t *testing.T) {
 	var lastApplied atomic.Value
 
 	capacitor := flux.New[appConfig](
-		flux.NewFileWatcher(path),
-		func(cfg appConfig) error {
+		file.New(path),
+		func(_ context.Context, _, cfg appConfig) error {
 			applyCount.Add(1)
 			lastApplied.Store(cfg)
 			return nil
 		},
-		flux.WithDebounce(50*time.Millisecond),
+		flux.WithDebounce[appConfig](50*time.Millisecond),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -133,12 +147,12 @@ func TestCapacitor_FileWatcher_InvalidUpdateRetainsPrevious(t *testing.T) {
 	var lastApplied atomic.Value
 
 	capacitor := flux.New[appConfig](
-		flux.NewFileWatcher(path),
-		func(cfg appConfig) error {
+		file.New(path),
+		func(_ context.Context, _, cfg appConfig) error {
 			lastApplied.Store(cfg)
 			return nil
 		},
-		flux.WithDebounce(50*time.Millisecond),
+		flux.WithDebounce[appConfig](50*time.Millisecond),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -195,11 +209,11 @@ func TestCapacitor_FileWatcher_RecoveryFromDegraded(t *testing.T) {
 	}
 
 	capacitor := flux.New[appConfig](
-		flux.NewFileWatcher(path),
-		func(_ appConfig) error {
+		file.New(path),
+		func(_ context.Context, _, _ appConfig) error {
 			return nil
 		},
-		flux.WithDebounce(50*time.Millisecond),
+		flux.WithDebounce[appConfig](50*time.Millisecond),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -259,11 +273,11 @@ func TestCapacitor_FileWatcher_MalformedJSON(t *testing.T) {
 	}
 
 	capacitor := flux.New[appConfig](
-		flux.NewFileWatcher(path),
-		func(_ appConfig) error {
+		file.New(path),
+		func(_ context.Context, _, _ appConfig) error {
 			return nil
 		},
-		flux.WithDebounce(50*time.Millisecond),
+		flux.WithDebounce[appConfig](50*time.Millisecond),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

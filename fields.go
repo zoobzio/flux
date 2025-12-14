@@ -21,4 +21,7 @@ var (
 
 	// KeyWatcherType is the type name of the watcher implementation.
 	KeyWatcherType = capitan.NewStringKey("watcher_type")
+
+	// KeyConsecutiveFailures is the number of consecutive failures when circuit breaks.
+	KeyConsecutiveFailures = capitan.NewIntKey("consecutive_failures")
 )

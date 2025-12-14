@@ -13,52 +13,25 @@ Reactive configuration synchronization for Go.
 
 Watch external sources, validate changes, and apply them safely with automatic rollback on failure.
 
-## The Problem
-
-Configuration reload is tricky:
+## Two Primitives
 
 ```go
-// Option A: Static config - requires restart
-var config = loadConfig()
+// Single source - watch, validate, apply
+capacitor := flux.New[Config](watcher, callback)
 
-// Option B: Live reload - no safety net
-func reloadConfig() {
-    data, _ := os.ReadFile("config.yaml")
-    yaml.Unmarshal(data, &config) // Hope it's valid!
-}
+// Multiple sources - watch all, merge with reducer
+capacitor := flux.Compose[Config](reducer, watchers)
 ```
 
-**Problems:**
-- Invalid config corrupts application state
-- No rollback when bad config breaks the app
-- No visibility into configuration health
+Both provide the same guarantees: invalid config is rejected, previous valid config is retained, and your callback only receives validated data.
 
-## The Solution
+## Installation
 
-Flux provides `Capacitor` - a reactive primitive that watches, validates, and applies configuration changes safely:
-
-```go
-type Config struct {
-    Port int `yaml:"port" validate:"min=1,max=65535"`
-}
-
-capacitor := flux.New[Config](
-    flux.NewFileWatcher("config.yaml"),
-    func(cfg Config) error {
-        // Only called with valid, parsed config
-        return app.SetConfig(cfg)
-    },
-)
-
-capacitor.Start(ctx)
+```bash
+go get github.com/zoobzio/flux
 ```
 
-**Wins:**
-- Automatic YAML/JSON unmarshaling via struct tags
-- Automatic validation via [go-playground/validator](https://github.com/go-playground/validator) tags
-- Invalid config rejected, previous retained
-- Clear state machine (Healthy/Degraded/Empty)
-- Capitan signals for observability
+Requires Go 1.23+.
 
 ## Quick Start
 
@@ -67,251 +40,85 @@ package main
 
 import (
     "context"
+    "errors"
     "log"
-    "time"
 
     "github.com/zoobzio/flux"
+    "github.com/zoobzio/flux/pkg/file"
 )
 
 type Config struct {
-    Port        int    `yaml:"port" json:"port" validate:"min=1,max=65535"`
-    DatabaseURL string `yaml:"database_url" json:"database_url" validate:"required"`
-    MaxConns    int    `yaml:"max_conns" json:"max_conns" validate:"min=1"`
+    Port int    `json:"port"`
+    Host string `json:"host"`
+}
+
+func (c Config) Validate() error {
+    if c.Port < 1 || c.Port > 65535 {
+        return errors.New("port must be between 1 and 65535")
+    }
+    if c.Host == "" {
+        return errors.New("host is required")
+    }
+    return nil
 }
 
 func main() {
     capacitor := flux.New[Config](
-        flux.NewFileWatcher("/etc/myapp/config.yaml"),
-
-        // Callback: Only called with valid, parsed config
-        func(cfg Config) error {
-            // Update your application
-            log.Printf("Config applied: port=%d", cfg.Port)
+        file.New("/etc/myapp/config.json"),
+        func(prev, curr Config) error {
+            log.Printf("Config changed: port %d -> %d", prev.Port, curr.Port)
             return nil
         },
-
-        flux.WithDebounce(100*time.Millisecond),
     )
 
-    ctx := context.Background()
-    if err := capacitor.Start(ctx); err != nil {
-        log.Printf("Initial load failed: %v", err)
+    if err := capacitor.Start(context.Background()); err != nil {
+        log.Fatalf("Initial load failed: %v", err)
     }
 
-    // Check state anytime
-    log.Println(capacitor.State()) // "healthy", "degraded", or "empty"
+    log.Printf("State: %s", capacitor.State()) // healthy, degraded, or empty
 
-    // Get current config
     if cfg, ok := capacitor.Current(); ok {
-        log.Printf("Port: %d", cfg.Port)
+        log.Printf("Current port: %d", cfg.Port)
     }
+
+    // Capacitor continues watching in background until context is cancelled
+    select {}
 }
 ```
 
-Flux automatically:
-1. Detects YAML or JSON format (by `{` or `[` prefix)
-2. Unmarshals to your struct via `yaml`/`json` tags
-3. Validates using `validate` struct tags
-4. Only calls your callback if everything passes
+## Why flux?
 
-To enforce a specific format instead of auto-detection:
+- **Safe by default** — Invalid config rejected, previous retained, callback only sees valid data
+- **Four-state machine** — Loading, Healthy, Degraded, Empty with clear transitions
+- **Multi-source composition** — Merge configs from files, Redis, Kubernetes, environment
+- **Pluggable providers** — File, Redis, Consul, etcd, PostgreSQL, NATS, Kubernetes, ZooKeeper, Firestore
+- **Observable** — [capitan](https://github.com/zoobzio/capitan) signals for state changes, failures, metrics
+- **Testable** — Sync mode and channel watchers for deterministic tests
 
-```go
-flux.WithJSON()  // Only accept JSON - YAML will fail
-flux.WithYAML()  // Always parse as YAML (also accepts JSON)
-```
+## Documentation
 
-## State Machine
+Full documentation is available in the [docs/](docs/) directory:
 
-```
-┌─────────┐   valid    ┌─────────┐
-│ Loading │──────────▶│ Healthy │◀──┐
-└─────────┘            └─────────┘   │
-     │                      │        │
-     │ invalid              │ invalid│ valid
-     ▼                      ▼        │
-┌─────────┐            ┌─────────┐───┘
-│  Empty  │            │ Degraded│
-└─────────┘            └─────────┘
-```
+### Learn
+- [Quickstart](docs/2.learn/1.quickstart.md) — Get started in minutes
+- [Core Concepts](docs/2.learn/2.concepts.md) — Capacitor, watchers, state machine, validation
+- [Architecture](docs/2.learn/3.architecture.md) — Processing pipeline, debouncing, error handling
 
-- **Loading** - Initial state, no config yet
-- **Healthy** - Valid config applied
-- **Degraded** - Last change failed, previous config still active
-- **Empty** - Initial load failed, no valid config ever obtained
+### Guides
+- [Testing](docs/3.guides/1.testing.md) — Sync mode, channel watchers, deterministic tests
+- [Providers](docs/3.guides/2.providers.md) — Configuring file, Redis, Kubernetes, and other watchers
+- [State Management](docs/3.guides/3.state.md) — State transitions, error recovery, circuit breakers
+- [Best Practices](docs/3.guides/4.best-practices.md) — Validation design, graceful degradation, observability
 
-## Multi-Source Composition
+### Cookbook
+- [File Config](docs/4.cookbook/1.file-config.md) — Hot-reloading configuration files
+- [Multi-Source](docs/4.cookbook/2.multi-source.md) — Merging defaults, files, and environment
+- [Custom Watcher](docs/4.cookbook/3.custom-watcher.md) — Building watchers for custom sources
 
-Combine multiple configuration sources with `Compose`:
-
-```go
-type Config struct {
-    Port    int    `yaml:"port" validate:"min=1,max=65535"`
-    Timeout int    `yaml:"timeout" validate:"min=0"`
-    Debug   bool   `yaml:"debug"`
-}
-
-capacitor := flux.Compose[Config](
-    // Reducer receives all parsed configs - you merge and return result
-    func(configs []Config) (Config, error) {
-        merged := configs[0]  // Start with defaults
-
-        // Override with file config
-        if configs[1].Port != 0 {
-            merged.Port = configs[1].Port
-        }
-        if configs[1].Timeout != 0 {
-            merged.Timeout = configs[1].Timeout
-        }
-
-        // Env config has highest priority
-        if configs[2].Port != 0 {
-            merged.Port = configs[2].Port
-        }
-        merged.Debug = configs[2].Debug
-
-        return merged, nil
-    },
-    defaultsWatcher,  // Lowest priority
-    fileWatcher,      // Medium priority
-    envWatcher,       // Highest priority
-)
-```
-
-Each source emits raw bytes. Flux parses and validates each one independently, then passes the slice of parsed configs to your reducer. The merged result is stored and accessible via `Current()`.
-
-## Observability
-
-Flux emits [capitan](https://github.com/zoobzio/capitan) signals for monitoring:
-
-```go
-capitan.Hook(flux.CapacitorStateChanged, func(_ context.Context, e *capitan.Event) {
-    oldState, _ := flux.KeyOldState.From(e)
-    newState, _ := flux.KeyNewState.From(e)
-    log.Printf("Config state: %s → %s", oldState, newState)
-})
-
-capitan.Hook(flux.CapacitorValidationFailed, func(_ context.Context, e *capitan.Event) {
-    errMsg, _ := flux.KeyError.From(e)
-    log.Printf("Config rejected: %s", errMsg)
-})
-```
-
-Available signals:
-- `CapacitorStarted` - Watching started
-- `CapacitorStopped` - Watching stopped
-- `CapacitorStateChanged` - State transition
-- `CapacitorChangeReceived` - Raw change from watcher
-- `CapacitorTransformFailed` - Unmarshal error
-- `CapacitorValidationFailed` - Validation error
-- `CapacitorApplyFailed` - Callback error
-- `CapacitorApplySucceeded` - Config applied
-
-## Installation
-
-```bash
-go get github.com/zoobzio/flux
-```
-
-Requirements: Go 1.23+
-
-## Custom Watchers
-
-Implement the `Watcher` interface for custom sources:
-
-```go
-type Watcher interface {
-    Watch(ctx context.Context) (<-chan []byte, error)
-}
-```
-
-Example polling watcher:
-
-```go
-type PollingWatcher struct {
-    fetch    func(context.Context) ([]byte, error)
-    interval time.Duration
-}
-
-func (w *PollingWatcher) Watch(ctx context.Context) (<-chan []byte, error) {
-    ch := make(chan []byte)
-    go func() {
-        defer close(ch)
-        ticker := time.NewTicker(w.interval)
-        defer ticker.Stop()
-
-        for {
-            select {
-            case <-ctx.Done():
-                return
-            case <-ticker.C:
-                if data, err := w.fetch(ctx); err == nil {
-                    ch <- data
-                }
-            }
-        }
-    }()
-    return ch, nil
-}
-```
-
-## Testing
-
-Flux provides `ChannelWatcher` and sync mode for deterministic testing:
-
-```go
-func TestConfig(t *testing.T) {
-    ch := make(chan []byte, 1)
-    watcher := flux.NewSyncChannelWatcher(ch)
-
-    var applied TestConfig
-    capacitor := flux.New[TestConfig](
-        watcher,
-        func(cfg TestConfig) error {
-            applied = cfg
-            return nil
-        },
-        flux.WithSyncMode(), // Synchronous processing
-    )
-
-    // Send config and verify immediately
-    ch <- []byte("port: 8080\nhost: localhost")
-    capacitor.Start(context.Background())
-
-    assert.Equal(t, 8080, applied.Port)
-    assert.Equal(t, flux.StateHealthy, capacitor.State())
-}
-```
-
-## Validation
-
-Flux uses [go-playground/validator](https://github.com/go-playground/validator) for struct tag validation. Common tags:
-
-```go
-type Config struct {
-    Port     int    `validate:"min=1,max=65535"`      // Range
-    Host     string `validate:"required"`              // Required
-    URL      string `validate:"url"`                   // URL format
-    Email    string `validate:"email"`                 // Email format
-    Timeout  int    `validate:"gte=0,lte=300"`        // Greater/less than
-    LogLevel string `validate:"oneof=debug info warn"` // Enum
-}
-```
-
-For complex validation (e.g., field dependencies), return an error from your callback:
-
-```go
-capacitor := flux.New[Config](
-    watcher,
-    func(cfg Config) error {
-        // Business rule: checkout requires cart
-        if cfg.EnableCheckout && !cfg.EnableCart {
-            return errors.New("checkout requires cart")
-        }
-        return app.SetConfig(cfg)
-    },
-)
-```
+### Reference
+- [API Reference](docs/5.reference/1.api.md) — Complete function and type documentation
+- [Fields Reference](docs/5.reference/2.fields.md) — Capitan signal fields
+- [Providers Reference](docs/5.reference/3.providers.md) — All provider packages and options
 
 ## Contributing
 
@@ -322,4 +129,4 @@ Contributions welcome! Please ensure:
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT License — see [LICENSE](LICENSE) for details.

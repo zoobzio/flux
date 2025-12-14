@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zoobzio/flux"
+	"github.com/zoobzio/flux/pkg/file"
 )
 
 func TestFileWatcher_EmitsInitialContents(t *testing.T) {
@@ -18,7 +18,7 @@ func TestFileWatcher_EmitsInitialContents(t *testing.T) {
 		t.Fatalf("failed to write file: %v", err)
 	}
 
-	watcher := flux.NewFileWatcher(path)
+	watcher := file.New(path)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -46,7 +46,7 @@ func TestFileWatcher_EmitsOnWrite(t *testing.T) {
 		t.Fatalf("failed to write file: %v", err)
 	}
 
-	watcher := flux.NewFileWatcher(path)
+	watcher := file.New(path)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -87,7 +87,7 @@ func TestFileWatcher_ClosesOnContextCancel(t *testing.T) {
 		t.Fatalf("failed to write file: %v", err)
 	}
 
-	watcher := flux.NewFileWatcher(path)
+	watcher := file.New(path)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -118,7 +118,7 @@ func TestFileWatcher_ClosesOnContextCancel(t *testing.T) {
 }
 
 func TestFileWatcher_ErrorOnNonexistentFile(t *testing.T) {
-	watcher := flux.NewFileWatcher("/nonexistent/path/config.txt")
+	watcher := file.New("/nonexistent/path/config.txt")
 
 	ctx := context.Background()
 	_, err := watcher.Watch(ctx)
@@ -135,7 +135,7 @@ func TestFileWatcher_EventuallySeesLatestValue(t *testing.T) {
 		t.Fatalf("failed to write file: %v", err)
 	}
 
-	watcher := flux.NewFileWatcher(path)
+	watcher := file.New(path)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

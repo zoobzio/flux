@@ -1,0 +1,16 @@
+go 1.24.0
+
+use (
+	.
+	./pkg/consul
+	./pkg/etcd
+	./pkg/file
+	./pkg/firestore
+	./pkg/kubernetes
+	./pkg/nats
+	./pkg/postgres
+	./pkg/redis
+	./pkg/zookeeper
+	./testing/benchmarks
+	./testing/integration
+)

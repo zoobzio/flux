@@ -1,0 +1,1674 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>flux: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/zoobzio/flux/api.go (97.4%)</option>
+				
+				<option value="file1">github.com/zoobzio/flux/channel_watcher.go (93.3%)</option>
+				
+				<option value="file2">github.com/zoobzio/flux/codec.go (100.0%)</option>
+				
+				<option value="file3">github.com/zoobzio/flux/compose.go (89.6%)</option>
+				
+				<option value="file4">github.com/zoobzio/flux/error_ring.go (100.0%)</option>
+				
+				<option value="file5">github.com/zoobzio/flux/metrics.go (0.0%)</option>
+				
+				<option value="file6">github.com/zoobzio/flux/options.go (96.9%)</option>
+				
+				<option value="file7">github.com/zoobzio/flux/state.go (100.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">// Package flux provides reactive configuration synchronization primitives.
+//
+// The core type is Capacitor, which watches external sources for changes,
+// deserializes and validates the data, and delivers it to application code
+// with automatic rollback on failure.
+//
+// # Capacitor
+//
+// A Capacitor monitors a source for changes and processes them through a
+// pipeline:
+//
+//        Source → Deserialize → Validate → Pipeline → Store
+//
+// If any step fails, the previous valid configuration is retained and
+// the Capacitor enters a degraded state while continuing to watch for
+// valid updates.
+//
+// # Validation
+//
+// Configuration types must implement the Validator interface:
+//
+//        type Validator interface {
+//            Validate() error
+//        }
+//
+// This gives full control over validation logic. For simple cases, you can
+// delegate to a validation library like go-playground/validator within your
+// Validate method.
+//
+// # State Machine
+//
+// Capacitor maintains one of four states:
+//
+//   - Loading: Initial state, no config yet
+//   - Healthy: Valid config applied
+//   - Degraded: Last change failed, previous config still active
+//   - Empty: Initial load failed, no valid config ever obtained
+//
+// # Watchers
+//
+// The Watcher interface abstracts change sources. The core package provides
+// ChannelWatcher for testing. Additional watchers are available in pkg/:
+//
+//   - pkg/file: File watcher using fsnotify
+//   - pkg/redis: Redis keyspace notifications
+//   - pkg/consul: Consul blocking queries
+//   - pkg/etcd: etcd Watch API
+//   - pkg/postgres: PostgreSQL LISTEN/NOTIFY
+//   - pkg/nats: NATS JetStream KV
+//   - pkg/kubernetes: ConfigMap/Secret watch
+//   - pkg/zookeeper: ZooKeeper node watch
+//   - pkg/firestore: Firestore realtime listeners
+//
+// # Example
+//
+//        type AppConfig struct {
+//            Port int    `json:"port"`
+//            Host string `json:"host"`
+//        }
+//
+//        func (c AppConfig) Validate() error {
+//            if c.Port &lt; 1 || c.Port &gt; 65535 {
+//                return errors.New("port must be between 1 and 65535")
+//            }
+//            if c.Host == "" {
+//                return errors.New("host is required")
+//            }
+//            return nil
+//        }
+//
+//        capacitor := flux.New[AppConfig](
+//            file.New("/etc/myapp/config.json"),
+//            func(ctx context.Context, prev, curr AppConfig) error {
+//                log.Printf("config changed: %+v -&gt; %+v", prev, curr)
+//                return app.Reconfigure(curr)
+//            },
+//        )
+//
+//        if err := capacitor.Start(ctx); err != nil {
+//            log.Printf("initial config failed: %v", err)
+//        }
+package flux
+
+import (
+        "context"
+        "fmt"
+        "sync"
+        "sync/atomic"
+        "time"
+
+        "github.com/zoobzio/capitan"
+        "github.com/zoobzio/clockz"
+        "github.com/zoobzio/pipz"
+)
+
+// DefaultDebounce is the default debounce duration for change processing.
+const DefaultDebounce = 100 * time.Millisecond
+
+// Validator is the interface that configuration types must implement.
+// This allows users to define their own validation logic.
+type Validator interface {
+        Validate() error
+}
+
+// Watcher observes a source for changes and emits raw bytes on a channel.
+// Implementations must emit the current value immediately upon Watch() being
+// called to support initial configuration loading.
+type Watcher interface {
+        // Watch begins observing the source and returns a channel that emits
+        // raw bytes when changes occur. The channel is closed when the context
+        // is canceled or an unrecoverable error occurs.
+        //
+        // Implementations should emit the current value immediately to support
+        // initial configuration loading.
+        Watch(ctx context.Context) (&lt;-chan []byte, error)
+}
+
+// Capacitor watches a source for changes, unmarshals and validates the data,
+// and delivers it to application code with automatic rollback on failure.
+type Capacitor[T Validator] struct {
+        watcher        Watcher
+        pipeline       pipz.Chainable[*Request[T]]
+        debounce       time.Duration
+        startupTimeout time.Duration
+        syncMode       bool
+        clock          clockz.Clock
+        codec          Codec
+        metrics        MetricsProvider
+        onStop         func(State)
+
+        state        atomic.Int32
+        current      atomic.Pointer[T]
+        lastError    atomic.Pointer[error]
+        errorHistory *errorRing
+
+        mu      sync.Mutex
+        started bool
+
+        // For sync mode: channel to receive changes
+        changes &lt;-chan []byte
+}
+
+// New creates a Capacitor that watches a source for configuration changes.
+//
+// The watcher emits raw bytes when the source changes. Bytes are automatically
+// unmarshaled to type T using the configured codec. The struct is validated by
+// calling T.Validate(). On success, the callback is invoked with previous and
+// current values.
+//
+// Pipeline options (With*) configure the processing pipeline. Instance
+// configuration uses chainable methods before calling Start().
+//
+// Example:
+//
+//        capacitor := flux.New[Config](
+//            file.New("config.json"),
+//            func(ctx context.Context, prev, curr Config) error {
+//                log.Printf("config changed: port %d -&gt; %d", prev.Port, curr.Port)
+//                return nil
+//            },
+//            flux.WithRetry(3),
+//        ).Debounce(200 * time.Millisecond)
+func New[T Validator](
+        watcher Watcher,
+        fn func(ctx context.Context, prev, curr T) error,
+        opts ...Option[T],
+) *Capacitor[T] <span class="cov8" title="1">{
+        terminal := pipz.Effect(pipz.Name("callback"), func(ctx context.Context, req *Request[T]) error </span><span class="cov8" title="1">{
+                return fn(ctx, req.Previous, req.Current)
+        }</span>)
+        <span class="cov8" title="1">pipeline := buildPipeline(terminal, opts)
+
+        c := &amp;Capacitor[T]{
+                watcher:      watcher,
+                pipeline:     pipeline,
+                debounce:     DefaultDebounce,
+                clock:        clockz.RealClock,
+                codec:        JSONCodec{},
+                errorHistory: newErrorRing(0),
+        }
+        c.state.Store(int32(StateLoading))
+
+        return c</span>
+}
+
+// -----------------------------------------------------------------------------
+// Chainable Instance Configuration
+// -----------------------------------------------------------------------------
+
+// Debounce sets the debounce duration for change processing.
+// Changes arriving within this duration are coalesced into a single update.
+// Default: 100ms. Must be called before Start().
+func (c *Capacitor[T]) Debounce(d time.Duration) *Capacitor[T] <span class="cov8" title="1">{
+        c.debounce = d
+        return c
+}</span>
+
+// SyncMode enables synchronous processing for testing.
+// In sync mode, changes are processed immediately without debouncing
+// or async goroutines, making tests deterministic. Must be called before Start().
+func (c *Capacitor[T]) SyncMode() *Capacitor[T] <span class="cov8" title="1">{
+        c.syncMode = true
+        return c
+}</span>
+
+// Clock sets a custom clock for time operations.
+// Use this with clockz.FakeClock for deterministic debounce testing.
+// Must be called before Start().
+func (c *Capacitor[T]) Clock(clock clockz.Clock) *Capacitor[T] <span class="cov8" title="1">{
+        c.clock = clock
+        return c
+}</span>
+
+// Codec sets the codec for deserializing configuration data.
+// Default: JSONCodec. Must be called before Start().
+func (c *Capacitor[T]) Codec(codec Codec) *Capacitor[T] <span class="cov8" title="1">{
+        c.codec = codec
+        return c
+}</span>
+
+// StartupTimeout sets the maximum duration to wait for the initial
+// configuration value from the watcher. If the watcher fails to emit
+// within this duration, Start() returns an error.
+// Default: no timeout (wait indefinitely). Must be called before Start().
+func (c *Capacitor[T]) StartupTimeout(d time.Duration) *Capacitor[T] <span class="cov8" title="1">{
+        c.startupTimeout = d
+        return c
+}</span>
+
+// Metrics sets a metrics provider for observability integration.
+// The provider receives callbacks on state changes, processing success/failure,
+// and change events. Must be called before Start().
+func (c *Capacitor[T]) Metrics(provider MetricsProvider) *Capacitor[T] <span class="cov8" title="1">{
+        c.metrics = provider
+        return c
+}</span>
+
+// OnStop sets a callback that is invoked when the capacitor stops watching.
+// The callback receives the final state of the capacitor. This is useful for
+// graceful shutdown scenarios where cleanup is needed. Must be called before Start().
+func (c *Capacitor[T]) OnStop(fn func(State)) *Capacitor[T] <span class="cov8" title="1">{
+        c.onStop = fn
+        return c
+}</span>
+
+// ErrorHistory sets the number of recent errors to retain.
+// When set, ErrorHistory() returns up to this many recent errors.
+// Use 0 (default) to only retain the most recent error via LastError().
+// Must be called before Start().
+func (c *Capacitor[T]) ErrorHistorySize(n int) *Capacitor[T] <span class="cov8" title="1">{
+        c.errorHistory = newErrorRing(n)
+        return c
+}</span>
+
+// State returns the current state of the Capacitor.
+func (c *Capacitor[T]) State() State <span class="cov8" title="1">{
+        return State(c.state.Load())
+}</span>
+
+// Current returns the current valid configuration and true, or the zero value
+// and false if no valid configuration has been applied.
+func (c *Capacitor[T]) Current() (T, bool) <span class="cov8" title="1">{
+        ptr := c.current.Load()
+        if ptr == nil </span><span class="cov8" title="1">{
+                var zero T
+                return zero, false
+        }</span>
+        <span class="cov8" title="1">return *ptr, true</span>
+}
+
+// LastError returns the last error encountered, or nil if no error occurred.
+func (c *Capacitor[T]) LastError() error <span class="cov8" title="1">{
+        ptr := c.lastError.Load()
+        if ptr == nil </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">return *ptr</span>
+}
+
+// ErrorHistory returns the recent error history, oldest first.
+// Returns nil if error history is not enabled (see WithErrorHistory).
+func (c *Capacitor[T]) ErrorHistory() []error <span class="cov8" title="1">{
+        return c.errorHistory.all()
+}</span>
+
+// Start begins watching for changes. It blocks until the first configuration
+// is processed (success or failure), then continues watching asynchronously.
+//
+// If the initial configuration fails, Start returns the error but continues
+// watching in the background for valid updates.
+//
+// In sync mode, Start only processes the initial value. Use Process() to
+// manually trigger processing of subsequent values.
+//
+// Start can only be called once. Subsequent calls return an error.
+func (c *Capacitor[T]) Start(ctx context.Context) error <span class="cov8" title="1">{
+        c.mu.Lock()
+        if c.started </span><span class="cov8" title="1">{
+                c.mu.Unlock()
+                return fmt.Errorf("capacitor already started")
+        }</span>
+        <span class="cov8" title="1">c.started = true
+        c.mu.Unlock()
+
+        capitan.Emit(ctx, CapacitorStarted,
+                KeyDebounce.Field(c.debounce),
+        )
+
+        changes, err := c.watcher.Watch(ctx)
+        if err != nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("failed to start watcher: %w", err)
+        }</span>
+
+        // Wait for first value and process synchronously
+        <span class="cov8" title="1">var initialErr error
+
+        // Wrap context with startup timeout if configured
+        startupCtx := ctx
+        if c.startupTimeout &gt; 0 </span><span class="cov8" title="1">{
+                var cancel context.CancelFunc
+                startupCtx, cancel = c.clock.WithTimeout(ctx, c.startupTimeout)
+                defer cancel()
+        }</span>
+
+        <span class="cov8" title="1">select </span>{
+        case &lt;-startupCtx.Done():<span class="cov8" title="1">
+                if c.startupTimeout &gt; 0 &amp;&amp; startupCtx.Err() == context.DeadlineExceeded </span><span class="cov8" title="1">{
+                        return fmt.Errorf("startup timeout: watcher did not emit initial value within %v", c.startupTimeout)
+                }</span>
+                <span class="cov8" title="1">return startupCtx.Err()</span>
+        case raw, ok := &lt;-changes:<span class="cov8" title="1">
+                if !ok </span><span class="cov8" title="1">{
+                        return fmt.Errorf("watcher closed before emitting initial value")
+                }</span>
+                <span class="cov8" title="1">capitan.Emit(ctx, CapacitorChangeReceived)
+                if c.metrics != nil </span><span class="cov8" title="1">{
+                        c.metrics.OnChangeReceived()
+                }</span>
+                <span class="cov8" title="1">initialErr = c.process(ctx, raw)</span>
+        }
+
+        <span class="cov8" title="1">if c.syncMode </span><span class="cov8" title="1">{
+                // In sync mode, store channel for manual processing
+                c.changes = changes
+                return initialErr
+        }</span>
+
+        // Continue watching asynchronously
+        <span class="cov8" title="1">go c.watch(ctx, changes)
+
+        return initialErr</span>
+}
+
+// Process reads and processes the next value from the watcher.
+// This is only available in sync mode and is used for deterministic testing.
+// Returns false if no value is available or the channel is closed.
+func (c *Capacitor[T]) Process(ctx context.Context) bool <span class="cov8" title="1">{
+        if !c.syncMode </span><span class="cov8" title="1">{
+                return false
+        }</span>
+
+        <span class="cov8" title="1">select </span>{
+        case raw, ok := &lt;-c.changes:<span class="cov8" title="1">
+                if !ok </span><span class="cov8" title="1">{
+                        return false
+                }</span>
+                <span class="cov8" title="1">capitan.Emit(ctx, CapacitorChangeReceived)
+                if c.metrics != nil </span><span class="cov8" title="1">{
+                        c.metrics.OnChangeReceived()
+                }</span>
+                <span class="cov8" title="1">_ = c.process(ctx, raw) //nolint:errcheck // Errors stored via setError
+                return true</span>
+        default:<span class="cov8" title="1">
+                return false</span>
+        }
+}
+
+// process unmarshals, validates, and delivers a single configuration update.
+func (c *Capacitor[T]) process(ctx context.Context, raw []byte) error <span class="cov8" title="1">{
+        start := c.clock.Now()
+        oldState := c.State()
+
+        // Unmarshal
+        var result T
+        if err := c.codec.Unmarshal(raw, &amp;result); err != nil </span><span class="cov8" title="1">{
+                c.setError(err)
+                c.transitionState(ctx, oldState, c.failureState())
+                capitan.Emit(ctx, CapacitorTransformFailed,
+                        KeyError.Field(err.Error()),
+                )
+                if c.metrics != nil </span><span class="cov0" title="0">{
+                        c.metrics.OnProcessFailure("unmarshal", c.clock.Since(start))
+                }</span>
+                <span class="cov8" title="1">return fmt.Errorf("unmarshal failed: %w", err)</span>
+        }
+
+        // Validate
+        <span class="cov8" title="1">if err := result.Validate(); err != nil </span><span class="cov8" title="1">{
+                c.setError(err)
+                c.transitionState(ctx, oldState, c.failureState())
+                capitan.Emit(ctx, CapacitorValidationFailed,
+                        KeyError.Field(err.Error()),
+                )
+                if c.metrics != nil </span><span class="cov8" title="1">{
+                        c.metrics.OnProcessFailure("validate", c.clock.Since(start))
+                }</span>
+                <span class="cov8" title="1">return fmt.Errorf("validation failed: %w", err)</span>
+        }
+
+        // Get previous value for pipeline (zero value if none)
+        <span class="cov8" title="1">var prev T
+        if ptr := c.current.Load(); ptr != nil </span><span class="cov8" title="1">{
+                prev = *ptr
+        }</span>
+
+        // Build request and process through pipeline
+        <span class="cov8" title="1">req := &amp;Request[T]{Previous: prev, Current: result, Raw: raw}
+        processed, err := c.pipeline.Process(ctx, req)
+        if err != nil </span><span class="cov8" title="1">{
+                c.setError(err)
+                c.transitionState(ctx, oldState, c.failureState())
+                capitan.Emit(ctx, CapacitorApplyFailed,
+                        KeyError.Field(err.Error()),
+                )
+                if c.metrics != nil </span><span class="cov0" title="0">{
+                        c.metrics.OnProcessFailure("pipeline", c.clock.Since(start))
+                }</span>
+                <span class="cov8" title="1">return fmt.Errorf("pipeline failed: %w", err)</span>
+        }
+
+        // Success - store result and clear error history
+        <span class="cov8" title="1">c.current.Store(&amp;processed.Current)
+        c.lastError.Store(nil)
+        c.errorHistory.clear()
+        c.transitionState(ctx, oldState, StateHealthy)
+        capitan.Emit(ctx, CapacitorApplySucceeded)
+        if c.metrics != nil </span><span class="cov8" title="1">{
+                c.metrics.OnProcessSuccess(c.clock.Since(start))
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// failureState returns the appropriate failure state based on whether
+// a valid configuration has ever been applied.
+func (c *Capacitor[T]) failureState() State <span class="cov8" title="1">{
+        if c.current.Load() == nil </span><span class="cov8" title="1">{
+                return StateEmpty
+        }</span>
+        <span class="cov8" title="1">return StateDegraded</span>
+}
+
+// transitionState updates the state and emits a state change event if changed.
+func (c *Capacitor[T]) transitionState(ctx context.Context, oldState, newState State) <span class="cov8" title="1">{
+        if oldState == newState </span><span class="cov8" title="1">{
+                return
+        }</span>
+        <span class="cov8" title="1">c.state.Store(int32(newState))
+        capitan.Emit(ctx, CapacitorStateChanged,
+                KeyOldState.Field(oldState.String()),
+                KeyNewState.Field(newState.String()),
+        )
+        if c.metrics != nil </span><span class="cov8" title="1">{
+                c.metrics.OnStateChange(oldState, newState)
+        }</span>
+}
+
+// setError stores an error atomically and adds it to the error history.
+func (c *Capacitor[T]) setError(err error) <span class="cov8" title="1">{
+        e := err
+        c.lastError.Store(&amp;e)
+        c.errorHistory.push(err)
+}</span>
+
+// watch processes changes from the watcher channel with debouncing.
+func (c *Capacitor[T]) watch(ctx context.Context, changes &lt;-chan []byte) <span class="cov8" title="1">{
+        defer func() </span><span class="cov8" title="1">{
+                finalState := c.State()
+                capitan.Emit(ctx, CapacitorStopped,
+                        KeyState.Field(finalState.String()),
+                )
+                if c.onStop != nil </span><span class="cov8" title="1">{
+                        c.onStop(finalState)
+                }</span>
+        }()
+
+        <span class="cov8" title="1">var (
+                timer      clockz.Timer
+                pending    []byte
+                hasPending bool
+        )
+
+        for </span><span class="cov8" title="1">{
+                // Get timer channel or nil if no timer
+                var timerC &lt;-chan time.Time
+                if timer != nil </span><span class="cov8" title="1">{
+                        timerC = timer.C()
+                }</span>
+
+                <span class="cov8" title="1">select </span>{
+                case &lt;-ctx.Done():<span class="cov8" title="1">
+                        if timer != nil </span><span class="cov8" title="1">{
+                                timer.Stop()
+                        }</span>
+                        <span class="cov8" title="1">return</span>
+
+                case raw, ok := &lt;-changes:<span class="cov8" title="1">
+                        if !ok </span><span class="cov8" title="1">{
+                                // Channel closed, process any pending change
+                                if hasPending </span><span class="cov8" title="1">{
+                                        _ = c.process(ctx, pending) //nolint:errcheck // Errors stored via setError
+                                }</span>
+                                <span class="cov8" title="1">return</span>
+                        }
+
+                        <span class="cov8" title="1">capitan.Emit(ctx, CapacitorChangeReceived)
+                        if c.metrics != nil </span><span class="cov0" title="0">{
+                                c.metrics.OnChangeReceived()
+                        }</span>
+                        <span class="cov8" title="1">pending = raw
+                        hasPending = true
+
+                        // Reset or start debounce timer
+                        if timer == nil </span><span class="cov8" title="1">{
+                                timer = c.clock.NewTimer(c.debounce)
+                        }</span> else<span class="cov8" title="1"> {
+                                if !timer.Stop() </span><span class="cov0" title="0">{
+                                        select </span>{
+                                        case &lt;-timer.C():<span class="cov0" title="0"></span>
+                                        default:<span class="cov0" title="0"></span>
+                                        }
+                                }
+                                <span class="cov8" title="1">timer.Reset(c.debounce)</span>
+                        }
+
+                case &lt;-timerC:<span class="cov8" title="1">
+                        if hasPending </span><span class="cov8" title="1">{
+                                _ = c.process(ctx, pending) //nolint:errcheck // Errors stored via setError
+                                hasPending = false
+                        }</span>
+                }
+        }
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package flux
+
+import "context"
+
+// ChannelWatcher wraps an existing byte channel as a Watcher.
+// Useful for testing and custom sources that already produce bytes.
+type ChannelWatcher struct {
+        ch   &lt;-chan []byte
+        sync bool
+}
+
+// NewChannelWatcher creates a ChannelWatcher that forwards values from the
+// given channel through an internal goroutine.
+func NewChannelWatcher(ch &lt;-chan []byte) *ChannelWatcher <span class="cov8" title="1">{
+        return &amp;ChannelWatcher{ch: ch, sync: false}
+}</span>
+
+// NewSyncChannelWatcher creates a ChannelWatcher that returns the source
+// channel directly without an intermediate goroutine.
+// Use with WithSyncMode() for deterministic testing.
+func NewSyncChannelWatcher(ch &lt;-chan []byte) *ChannelWatcher <span class="cov8" title="1">{
+        return &amp;ChannelWatcher{ch: ch, sync: true}
+}</span>
+
+// Watch returns a channel that emits values from the wrapped channel.
+func (w *ChannelWatcher) Watch(ctx context.Context) (&lt;-chan []byte, error) <span class="cov8" title="1">{
+        if w.sync </span><span class="cov8" title="1">{
+                return w.ch, nil
+        }</span>
+
+        <span class="cov8" title="1">out := make(chan []byte)
+        go func() </span><span class="cov8" title="1">{
+                defer close(out)
+                for </span><span class="cov8" title="1">{
+                        select </span>{
+                        case &lt;-ctx.Done():<span class="cov8" title="1">
+                                return</span>
+                        case v, ok := &lt;-w.ch:<span class="cov8" title="1">
+                                if !ok </span><span class="cov8" title="1">{
+                                        return
+                                }</span>
+                                <span class="cov8" title="1">select </span>{
+                                case out &lt;- v:<span class="cov8" title="1"></span>
+                                case &lt;-ctx.Done():<span class="cov0" title="0">
+                                        return</span>
+                                }
+                        }
+                }
+        }()
+        <span class="cov8" title="1">return out, nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package flux
+
+import (
+        "encoding/json"
+
+        "gopkg.in/yaml.v3"
+)
+
+// Codec defines the deserialization contract for configuration data.
+// Implement this interface to use alternative formats like TOML, HCL, or custom binary formats.
+type Codec interface {
+        // Unmarshal deserializes bytes into a value.
+        Unmarshal(data []byte, v any) error
+
+        // ContentType returns the MIME type for observability and debugging.
+        ContentType() string
+}
+
+// JSONCodec implements Codec using encoding/json.
+type JSONCodec struct{}
+
+// Unmarshal deserializes JSON bytes into v.
+func (JSONCodec) Unmarshal(data []byte, v any) error <span class="cov8" title="1">{
+        return json.Unmarshal(data, v)
+}</span>
+
+// ContentType returns the JSON MIME type.
+func (JSONCodec) ContentType() string <span class="cov8" title="1">{
+        return "application/json"
+}</span>
+
+// Ensure JSONCodec implements Codec.
+var _ Codec = JSONCodec{}
+
+// YAMLCodec implements Codec using gopkg.in/yaml.v3.
+type YAMLCodec struct{}
+
+// Unmarshal deserializes YAML bytes into v.
+func (YAMLCodec) Unmarshal(data []byte, v any) error <span class="cov8" title="1">{
+        return yaml.Unmarshal(data, v)
+}</span>
+
+// ContentType returns the YAML MIME type.
+func (YAMLCodec) ContentType() string <span class="cov8" title="1">{
+        return "application/x-yaml"
+}</span>
+
+// Ensure YAMLCodec implements Codec.
+var _ Codec = YAMLCodec{}
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package flux
+
+import (
+        "context"
+        "fmt"
+        "sync"
+        "sync/atomic"
+        "time"
+
+        "github.com/zoobzio/capitan"
+        "github.com/zoobzio/clockz"
+        "github.com/zoobzio/pipz"
+)
+
+// SourceError represents an error from a specific source in a CompositeCapacitor.
+type SourceError struct {
+        Index int
+        Error error
+}
+
+// CompositeCapacitor watches multiple sources, unmarshals and validates each,
+// and delivers the slice of parsed values to a reducer for merging.
+type CompositeCapacitor[T Validator] struct {
+        sources        []Watcher
+        reducer        Reducer[T]
+        pipeline       pipz.Chainable[*Request[T]]
+        debounce       time.Duration
+        startupTimeout time.Duration
+        syncMode       bool
+        clock          clockz.Clock
+        codec          Codec
+        metrics        MetricsProvider
+        onStop         func(State)
+
+        state        atomic.Int32
+        current      atomic.Pointer[T]
+        lastError    atomic.Pointer[error]
+        errorHistory *errorRing
+        sourceErrors atomic.Pointer[[]SourceError]
+
+        mu      sync.Mutex
+        started bool
+
+        // For sync mode
+        sourceChans []&lt;-chan []byte
+        latest      [][]byte
+        ready       []bool
+
+        // Track parsed values for old/new comparison
+        latestParsed atomic.Pointer[[]T]
+}
+
+// Compose creates a CompositeCapacitor for multiple sources.
+//
+// Each source emits raw bytes when it changes.
+// Bytes from each source are automatically unmarshaled to type T using the configured codec.
+// Each parsed value is validated by calling T.Validate().
+// When all sources are ready, the reducer receives the previous and new slices of parsed values
+// in the same order as the sources. On initial load, prev will be nil.
+// The reducer merges them and returns the final configuration.
+//
+// Pipeline options (With*) configure the processing pipeline. Instance
+// configuration uses chainable methods before calling Start().
+//
+// Example:
+//
+//        type Config struct {
+//            Port    int `json:"port"`
+//            Timeout int `json:"timeout"`
+//        }
+//
+//        func (c Config) Validate() error {
+//            if c.Port &lt; 1 || c.Port &gt; 65535 {
+//                return errors.New("port must be between 1 and 65535")
+//            }
+//            return nil
+//        }
+//
+//        capacitor := flux.Compose[Config](
+//            func(ctx context.Context, prev, curr []Config) (Config, error) {
+//                merged := curr[0]  // defaults
+//                if curr[1].Port != 0 {
+//                    merged.Port = curr[1].Port  // file overrides
+//                }
+//                return merged, nil
+//            },
+//            []flux.Watcher{defaultsWatcher, fileWatcher},
+//        ).Debounce(200 * time.Millisecond)
+func Compose[T Validator](
+        reducer Reducer[T],
+        sources []Watcher,
+        opts ...Option[T],
+) *CompositeCapacitor[T] <span class="cov8" title="1">{
+        // Create a passthrough terminal for CompositeCapacitor
+        // The actual reducer is called in process() before the pipeline
+        terminal := pipz.Transform(pipz.Name("passthrough"), func(_ context.Context, req *Request[T]) *Request[T] </span><span class="cov8" title="1">{
+                return req
+        }</span>)
+        <span class="cov8" title="1">pipeline := buildPipeline(terminal, opts)
+
+        c := &amp;CompositeCapacitor[T]{
+                sources:      sources,
+                reducer:      reducer,
+                pipeline:     pipeline,
+                debounce:     DefaultDebounce,
+                clock:        clockz.RealClock,
+                codec:        JSONCodec{},
+                errorHistory: newErrorRing(0),
+                latest:       make([][]byte, len(sources)),
+                ready:        make([]bool, len(sources)),
+        }
+        c.state.Store(int32(StateLoading))
+
+        return c</span>
+}
+
+// -----------------------------------------------------------------------------
+// Chainable Instance Configuration
+// -----------------------------------------------------------------------------
+
+// Debounce sets the debounce duration for change processing.
+// Changes arriving within this duration are coalesced into a single update.
+// Default: 100ms. Must be called before Start().
+func (c *CompositeCapacitor[T]) Debounce(d time.Duration) *CompositeCapacitor[T] <span class="cov8" title="1">{
+        c.debounce = d
+        return c
+}</span>
+
+// SyncMode enables synchronous processing for testing.
+// In sync mode, changes are processed immediately without debouncing
+// or async goroutines, making tests deterministic. Must be called before Start().
+func (c *CompositeCapacitor[T]) SyncMode() *CompositeCapacitor[T] <span class="cov8" title="1">{
+        c.syncMode = true
+        return c
+}</span>
+
+// Clock sets a custom clock for time operations.
+// Use this with clockz.FakeClock for deterministic debounce testing.
+// Must be called before Start().
+func (c *CompositeCapacitor[T]) Clock(clock clockz.Clock) *CompositeCapacitor[T] <span class="cov0" title="0">{
+        c.clock = clock
+        return c
+}</span>
+
+// Codec sets the codec for deserializing configuration data.
+// Default: JSONCodec. Must be called before Start().
+func (c *CompositeCapacitor[T]) Codec(codec Codec) *CompositeCapacitor[T] <span class="cov0" title="0">{
+        c.codec = codec
+        return c
+}</span>
+
+// StartupTimeout sets the maximum duration to wait for the initial
+// configuration value from each source. If any source fails to emit
+// within this duration, Start() returns an error.
+// Default: no timeout (wait indefinitely). Must be called before Start().
+func (c *CompositeCapacitor[T]) StartupTimeout(d time.Duration) *CompositeCapacitor[T] <span class="cov0" title="0">{
+        c.startupTimeout = d
+        return c
+}</span>
+
+// Metrics sets a metrics provider for observability integration.
+// The provider receives callbacks on state changes, processing success/failure,
+// and change events. Must be called before Start().
+func (c *CompositeCapacitor[T]) Metrics(provider MetricsProvider) *CompositeCapacitor[T] <span class="cov8" title="1">{
+        c.metrics = provider
+        return c
+}</span>
+
+// OnStop sets a callback that is invoked when the capacitor stops watching.
+// The callback receives the final state of the capacitor. This is useful for
+// graceful shutdown scenarios where cleanup is needed. Must be called before Start().
+func (c *CompositeCapacitor[T]) OnStop(fn func(State)) *CompositeCapacitor[T] <span class="cov8" title="1">{
+        c.onStop = fn
+        return c
+}</span>
+
+// ErrorHistorySize sets the number of recent errors to retain.
+// When set, ErrorHistory() returns up to this many recent errors.
+// Use 0 (default) to only retain the most recent error via LastError().
+// Must be called before Start().
+func (c *CompositeCapacitor[T]) ErrorHistorySize(n int) *CompositeCapacitor[T] <span class="cov8" title="1">{
+        c.errorHistory = newErrorRing(n)
+        return c
+}</span>
+
+// State returns the current state of the CompositeCapacitor.
+func (c *CompositeCapacitor[T]) State() State <span class="cov8" title="1">{
+        return State(c.state.Load())
+}</span>
+
+// Current returns the last successfully merged configuration.
+// Unlike the single-source Capacitor, this returns the value produced by
+// the reducer function, representing the merged result of all sources.
+func (c *CompositeCapacitor[T]) Current() (T, bool) <span class="cov8" title="1">{
+        ptr := c.current.Load()
+        if ptr == nil </span><span class="cov8" title="1">{
+                var zero T
+                return zero, false
+        }</span>
+        <span class="cov8" title="1">return *ptr, true</span>
+}
+
+// LastError returns the last error encountered.
+func (c *CompositeCapacitor[T]) LastError() error <span class="cov8" title="1">{
+        ptr := c.lastError.Load()
+        if ptr == nil </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">return *ptr</span>
+}
+
+// ErrorHistory returns the recent error history, oldest first.
+// Returns nil if error history is not enabled (see WithErrorHistory).
+func (c *CompositeCapacitor[T]) ErrorHistory() []error <span class="cov8" title="1">{
+        return c.errorHistory.all()
+}</span>
+
+// SourceErrors returns errors from individual sources, if any.
+// This provides granular insight into which sources are failing.
+func (c *CompositeCapacitor[T]) SourceErrors() []SourceError <span class="cov8" title="1">{
+        ptr := c.sourceErrors.Load()
+        if ptr == nil </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">return *ptr</span>
+}
+
+// Start begins watching all sources.
+func (c *CompositeCapacitor[T]) Start(ctx context.Context) error <span class="cov8" title="1">{
+        c.mu.Lock()
+        if c.started </span><span class="cov8" title="1">{
+                c.mu.Unlock()
+                return fmt.Errorf("capacitor already started")
+        }</span>
+        <span class="cov8" title="1">c.started = true
+        c.mu.Unlock()
+
+        if len(c.sources) == 0 </span><span class="cov8" title="1">{
+                return fmt.Errorf("compose requires at least one source")
+        }</span>
+
+        <span class="cov8" title="1">capitan.Emit(ctx, CapacitorStarted,
+                KeyDebounce.Field(c.debounce),
+        )
+
+        // Start all source watchers
+        c.sourceChans = make([]&lt;-chan []byte, len(c.sources))
+        for i, src := range c.sources </span><span class="cov8" title="1">{
+                ch, err := src.Watch(ctx)
+                if err != nil </span><span class="cov8" title="1">{
+                        return fmt.Errorf("failed to start source %d: %w", i, err)
+                }</span>
+                <span class="cov8" title="1">c.sourceChans[i] = ch</span>
+        }
+
+        // Wait for initial value from each source
+        // Wrap context with startup timeout if configured
+        <span class="cov8" title="1">startupCtx := ctx
+        if c.startupTimeout &gt; 0 </span><span class="cov0" title="0">{
+                var cancel context.CancelFunc
+                startupCtx, cancel = c.clock.WithTimeout(ctx, c.startupTimeout)
+                defer cancel()
+        }</span>
+
+        <span class="cov8" title="1">for i, ch := range c.sourceChans </span><span class="cov8" title="1">{
+                select </span>{
+                case &lt;-startupCtx.Done():<span class="cov8" title="1">
+                        if c.startupTimeout &gt; 0 &amp;&amp; startupCtx.Err() == context.DeadlineExceeded </span><span class="cov0" title="0">{
+                                return fmt.Errorf("startup timeout: source %d did not emit initial value within %v", i, c.startupTimeout)
+                        }</span>
+                        <span class="cov8" title="1">return startupCtx.Err()</span>
+                case raw, ok := &lt;-ch:<span class="cov8" title="1">
+                        if !ok </span><span class="cov8" title="1">{
+                                return fmt.Errorf("source %d closed before emitting initial value", i)
+                        }</span>
+                        <span class="cov8" title="1">c.latest[i] = raw
+                        c.ready[i] = true</span>
+                }
+        }
+
+        <span class="cov8" title="1">capitan.Emit(ctx, CapacitorChangeReceived)
+        if c.metrics != nil </span><span class="cov8" title="1">{
+                c.metrics.OnChangeReceived()
+        }</span>
+
+        // Process initial merged value
+        <span class="cov8" title="1">initialErr := c.process(ctx)
+
+        if c.syncMode </span><span class="cov8" title="1">{
+                return initialErr
+        }</span>
+
+        // Continue watching asynchronously
+        <span class="cov8" title="1">go c.watch(ctx)
+
+        return initialErr</span>
+}
+
+// Process manually processes pending changes in sync mode.
+func (c *CompositeCapacitor[T]) Process(ctx context.Context) bool <span class="cov8" title="1">{
+        if !c.syncMode </span><span class="cov8" title="1">{
+                return false
+        }</span>
+
+        // Check each source for new value (non-blocking)
+        <span class="cov8" title="1">changed := false
+        for i, ch := range c.sourceChans </span><span class="cov8" title="1">{
+                select </span>{
+                case raw, ok := &lt;-ch:<span class="cov8" title="1">
+                        if !ok </span><span class="cov8" title="1">{
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">c.latest[i] = raw
+                        changed = true</span>
+                default:<span class="cov8" title="1"></span>
+                }
+        }
+
+        <span class="cov8" title="1">if changed </span><span class="cov8" title="1">{
+                capitan.Emit(ctx, CapacitorChangeReceived)
+                if c.metrics != nil </span><span class="cov8" title="1">{
+                        c.metrics.OnChangeReceived()
+                }</span>
+                <span class="cov8" title="1">_ = c.process(ctx) //nolint:errcheck // Errors stored via setError
+                return true</span>
+        }
+        <span class="cov8" title="1">return false</span>
+}
+
+// process unmarshals each source, validates, calls reducer, and runs pipeline.
+func (c *CompositeCapacitor[T]) process(ctx context.Context) error <span class="cov8" title="1">{
+        start := c.clock.Now()
+        oldState := c.State()
+
+        // Unmarshal and validate each source, collecting any errors
+        results := make([]T, len(c.latest))
+        var sourceErrs []SourceError
+
+        for i, raw := range c.latest </span><span class="cov8" title="1">{
+                var result T
+                if err := c.codec.Unmarshal(raw, &amp;result); err != nil </span><span class="cov8" title="1">{
+                        sourceErrs = append(sourceErrs, SourceError{Index: i, Error: err})
+                        c.setError(err)
+                        c.setSourceErrors(sourceErrs)
+                        c.transitionState(ctx, oldState, c.failureState())
+                        capitan.Emit(ctx, CapacitorTransformFailed,
+                                KeyError.Field(fmt.Sprintf("source %d: %s", i, err.Error())),
+                        )
+                        if c.metrics != nil </span><span class="cov0" title="0">{
+                                c.metrics.OnProcessFailure("unmarshal", c.clock.Since(start))
+                        }</span>
+                        <span class="cov8" title="1">return fmt.Errorf("unmarshal source %d failed: %w", i, err)</span>
+                }
+
+                <span class="cov8" title="1">if err := result.Validate(); err != nil </span><span class="cov8" title="1">{
+                        sourceErrs = append(sourceErrs, SourceError{Index: i, Error: err})
+                        c.setError(err)
+                        c.setSourceErrors(sourceErrs)
+                        c.transitionState(ctx, oldState, c.failureState())
+                        capitan.Emit(ctx, CapacitorValidationFailed,
+                                KeyError.Field(fmt.Sprintf("source %d: %s", i, err.Error())),
+                        )
+                        if c.metrics != nil </span><span class="cov8" title="1">{
+                                c.metrics.OnProcessFailure("validate", c.clock.Since(start))
+                        }</span>
+                        <span class="cov8" title="1">return fmt.Errorf("validation source %d failed: %w", i, err)</span>
+                }
+
+                <span class="cov8" title="1">results[i] = result</span>
+        }
+
+        // Get previous parsed values for reducer (nil on first call)
+        <span class="cov8" title="1">var prev []T
+        if ptr := c.latestParsed.Load(); ptr != nil </span><span class="cov8" title="1">{
+                prev = *ptr
+        }</span>
+
+        // Reduce all parsed values to final merged config
+        <span class="cov8" title="1">merged, err := c.reducer(ctx, prev, results)
+        if err != nil </span><span class="cov8" title="1">{
+                c.setError(err)
+                c.transitionState(ctx, oldState, c.failureState())
+                capitan.Emit(ctx, CapacitorApplyFailed,
+                        KeyError.Field(err.Error()),
+                )
+                if c.metrics != nil </span><span class="cov0" title="0">{
+                        c.metrics.OnProcessFailure("reducer", c.clock.Since(start))
+                }</span>
+                <span class="cov8" title="1">return fmt.Errorf("reducer failed: %w", err)</span>
+        }
+
+        // Get previous merged value for pipeline
+        <span class="cov8" title="1">var prevMerged T
+        if ptr := c.current.Load(); ptr != nil </span><span class="cov8" title="1">{
+                prevMerged = *ptr
+        }</span>
+
+        // Build request and process through pipeline
+        <span class="cov8" title="1">req := &amp;Request[T]{Previous: prevMerged, Current: merged}
+        processed, err := c.pipeline.Process(ctx, req)
+        if err != nil </span><span class="cov0" title="0">{
+                c.setError(err)
+                c.transitionState(ctx, oldState, c.failureState())
+                capitan.Emit(ctx, CapacitorApplyFailed,
+                        KeyError.Field(err.Error()),
+                )
+                if c.metrics != nil </span><span class="cov0" title="0">{
+                        c.metrics.OnProcessFailure("pipeline", c.clock.Since(start))
+                }</span>
+                <span class="cov0" title="0">return fmt.Errorf("pipeline failed: %w", err)</span>
+        }
+
+        // Success - store merged result
+        <span class="cov8" title="1">c.current.Store(&amp;processed.Current)
+        c.latestParsed.Store(&amp;results)
+        c.lastError.Store(nil)
+        c.errorHistory.clear()
+        c.sourceErrors.Store(nil)
+        c.transitionState(ctx, oldState, StateHealthy)
+        capitan.Emit(ctx, CapacitorApplySucceeded)
+        if c.metrics != nil </span><span class="cov8" title="1">{
+                c.metrics.OnProcessSuccess(c.clock.Since(start))
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (c *CompositeCapacitor[T]) failureState() State <span class="cov8" title="1">{
+        if c.current.Load() == nil </span><span class="cov8" title="1">{
+                return StateEmpty
+        }</span>
+        <span class="cov8" title="1">return StateDegraded</span>
+}
+
+func (c *CompositeCapacitor[T]) transitionState(ctx context.Context, oldState, newState State) <span class="cov8" title="1">{
+        if oldState == newState </span><span class="cov8" title="1">{
+                return
+        }</span>
+        <span class="cov8" title="1">c.state.Store(int32(newState))
+        capitan.Emit(ctx, CapacitorStateChanged,
+                KeyOldState.Field(oldState.String()),
+                KeyNewState.Field(newState.String()),
+        )
+        if c.metrics != nil </span><span class="cov8" title="1">{
+                c.metrics.OnStateChange(oldState, newState)
+        }</span>
+}
+
+func (c *CompositeCapacitor[T]) setError(err error) <span class="cov8" title="1">{
+        e := err
+        c.lastError.Store(&amp;e)
+        c.errorHistory.push(err)
+}</span>
+
+func (c *CompositeCapacitor[T]) setSourceErrors(errs []SourceError) <span class="cov8" title="1">{
+        c.sourceErrors.Store(&amp;errs)
+}</span>
+
+// watch processes changes from all sources with debouncing.
+func (c *CompositeCapacitor[T]) watch(ctx context.Context) <span class="cov8" title="1">{
+        defer func() </span><span class="cov8" title="1">{
+                finalState := c.State()
+                capitan.Emit(ctx, CapacitorStopped,
+                        KeyState.Field(finalState.String()),
+                )
+                if c.onStop != nil </span><span class="cov8" title="1">{
+                        c.onStop(finalState)
+                }</span>
+        }()
+
+        // Fan-in channel: source goroutines signal when data arrives
+        <span class="cov8" title="1">changed := make(chan int, len(c.sourceChans))
+
+        // Start a goroutine for each source
+        var wg sync.WaitGroup
+        wg.Add(len(c.sourceChans))
+
+        for i, ch := range c.sourceChans </span><span class="cov8" title="1">{
+                go func(idx int, ch &lt;-chan []byte) </span><span class="cov8" title="1">{
+                        defer wg.Done()
+                        for </span><span class="cov8" title="1">{
+                                select </span>{
+                                case &lt;-ctx.Done():<span class="cov8" title="1">
+                                        return</span>
+                                case raw, ok := &lt;-ch:<span class="cov8" title="1">
+                                        if !ok </span><span class="cov8" title="1">{
+                                                return
+                                        }</span>
+                                        <span class="cov8" title="1">c.latest[idx] = raw
+                                        select </span>{
+                                        case changed &lt;- idx:<span class="cov8" title="1"></span>
+                                        case &lt;-ctx.Done():<span class="cov0" title="0">
+                                                return</span>
+                                        }
+                                }
+                        }
+                }(i, ch)
+        }
+
+        // Single goroutine handles debouncing and processing
+        <span class="cov8" title="1">go func() </span><span class="cov8" title="1">{
+                var (
+                        timer      clockz.Timer
+                        timerC     &lt;-chan time.Time
+                        hasPending bool
+                )
+
+                for </span><span class="cov8" title="1">{
+                        select </span>{
+                        case &lt;-ctx.Done():<span class="cov8" title="1">
+                                if timer != nil </span><span class="cov8" title="1">{
+                                        timer.Stop()
+                                }</span>
+                                <span class="cov8" title="1">return</span>
+
+                        case &lt;-changed:<span class="cov8" title="1">
+                                capitan.Emit(ctx, CapacitorChangeReceived)
+                                if c.metrics != nil </span><span class="cov0" title="0">{
+                                        c.metrics.OnChangeReceived()
+                                }</span>
+                                <span class="cov8" title="1">hasPending = true
+
+                                // Reset or start debounce timer
+                                if timer == nil </span><span class="cov8" title="1">{
+                                        timer = c.clock.NewTimer(c.debounce)
+                                        timerC = timer.C()
+                                }</span> else<span class="cov8" title="1"> {
+                                        if !timer.Stop() </span><span class="cov0" title="0">{
+                                                select </span>{
+                                                case &lt;-timerC:<span class="cov0" title="0"></span>
+                                                default:<span class="cov0" title="0"></span>
+                                                }
+                                        }
+                                        <span class="cov8" title="1">timer.Reset(c.debounce)</span>
+                                }
+
+                        case &lt;-timerC:<span class="cov8" title="1">
+                                if hasPending </span><span class="cov8" title="1">{
+                                        _ = c.process(ctx) //nolint:errcheck // Errors stored via setError
+                                        hasPending = false
+                                }</span>
+                        }
+                }
+        }()
+
+        <span class="cov8" title="1">wg.Wait()
+        close(changed)</span>
+}
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">package flux
+
+import "sync"
+
+// errorRing is a thread-safe ring buffer for storing recent errors.
+type errorRing struct {
+        mu     sync.RWMutex
+        errors []error
+        size   int
+        head   int
+        count  int
+}
+
+// newErrorRing creates a new error ring buffer with the given capacity.
+// If size is 0, the ring buffer is disabled.
+func newErrorRing(size int) *errorRing <span class="cov8" title="1">{
+        if size &lt;= 0 </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">return &amp;errorRing{
+                errors: make([]error, size),
+                size:   size,
+        }</span>
+}
+
+// push adds an error to the ring buffer.
+func (r *errorRing) push(err error) <span class="cov8" title="1">{
+        if r == nil </span><span class="cov8" title="1">{
+                return
+        }</span>
+        <span class="cov8" title="1">r.mu.Lock()
+        defer r.mu.Unlock()
+
+        r.errors[r.head] = err
+        r.head = (r.head + 1) % r.size
+        if r.count &lt; r.size </span><span class="cov8" title="1">{
+                r.count++
+        }</span>
+}
+
+// clear removes all errors from the ring buffer.
+func (r *errorRing) clear() <span class="cov8" title="1">{
+        if r == nil </span><span class="cov8" title="1">{
+                return
+        }</span>
+        <span class="cov8" title="1">r.mu.Lock()
+        defer r.mu.Unlock()
+
+        for i := range r.errors </span><span class="cov8" title="1">{
+                r.errors[i] = nil
+        }</span>
+        <span class="cov8" title="1">r.head = 0
+        r.count = 0</span>
+}
+
+// all returns all errors in the ring buffer, oldest first.
+func (r *errorRing) all() []error <span class="cov8" title="1">{
+        if r == nil </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">r.mu.RLock()
+        defer r.mu.RUnlock()
+
+        if r.count == 0 </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">result := make([]error, r.count)
+        start := (r.head - r.count + r.size) % r.size
+        for i := 0; i &lt; r.count; i++ </span><span class="cov8" title="1">{
+                result[i] = r.errors[(start+i)%r.size]
+        }</span>
+        <span class="cov8" title="1">return result</span>
+}
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">package flux
+
+import "time"
+
+// MetricsProvider allows integration with metrics systems like Prometheus, StatsD, etc.
+// Implement this interface to receive callbacks on key capacitor events.
+type MetricsProvider interface {
+        // OnStateChange is called when the capacitor transitions between states.
+        OnStateChange(from, to State)
+
+        // OnProcessSuccess is called when a configuration is successfully processed.
+        // Duration is the time taken to process (unmarshal, validate, callback).
+        OnProcessSuccess(duration time.Duration)
+
+        // OnProcessFailure is called when processing fails at any stage.
+        // Stage indicates where the failure occurred: "unmarshal", "validate", or "callback".
+        OnProcessFailure(stage string, duration time.Duration)
+
+        // OnChangeReceived is called when raw data is received from the watcher.
+        OnChangeReceived()
+}
+
+// NoOpMetricsProvider is a no-op implementation of MetricsProvider.
+// Use this as an embedded type to implement only the methods you need.
+type NoOpMetricsProvider struct{}
+
+func (NoOpMetricsProvider) OnStateChange(_, _ State)                   {<span class="cov0" title="0">}</span>
+func (NoOpMetricsProvider) OnProcessSuccess(_ time.Duration)           {<span class="cov0" title="0">}</span>
+func (NoOpMetricsProvider) OnProcessFailure(_ string, _ time.Duration) {<span class="cov0" title="0">}</span>
+func (NoOpMetricsProvider) OnChangeReceived()                          {<span class="cov0" title="0">}</span>
+</pre>
+		
+		<pre class="file" id="file6" style="display: none">package flux
+
+import (
+        "context"
+        "time"
+
+        "github.com/zoobzio/pipz"
+)
+
+// Option configures the processing pipeline for a Capacitor or CompositeCapacitor.
+// Pipeline options wrap the callback with middleware for retry, timeout,
+// circuit breaking, and other reliability patterns.
+//
+// Instance configuration (debounce, sync mode, codec, etc.) is handled via
+// chainable methods on the Capacitor/CompositeCapacitor before calling Start().
+type Option[T Validator] func(pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]]
+
+// buildPipeline wraps a terminal with pipeline options.
+func buildPipeline[T Validator](terminal pipz.Chainable[*Request[T]], opts []Option[T]) pipz.Chainable[*Request[T]] <span class="cov8" title="1">{
+        pipeline := terminal
+        for _, opt := range opts </span><span class="cov8" title="1">{
+                pipeline = opt(pipeline)
+        }</span>
+        <span class="cov8" title="1">return pipeline</span>
+}
+
+// -----------------------------------------------------------------------------
+// Pipeline Options - Wrapping (With*)
+// -----------------------------------------------------------------------------
+// These options wrap the entire pipeline, providing protection at the boundary.
+// Use for resilience patterns that should apply to all processing.
+
+// WithRetry wraps the pipeline with retry logic.
+// Failed operations are retried immediately up to maxAttempts times.
+// For exponential backoff between retries, use WithBackoff instead.
+func WithRetry[T Validator](maxAttempts int) Option[T] <span class="cov8" title="1">{
+        return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] </span><span class="cov8" title="1">{
+                return pipz.NewRetry("retry", p, maxAttempts)
+        }</span>
+}
+
+// WithBackoff wraps the pipeline with exponential backoff retry logic.
+// Failed operations are retried with increasing delays: baseDelay, 2*baseDelay, 4*baseDelay, etc.
+func WithBackoff[T Validator](maxAttempts int, baseDelay time.Duration) Option[T] <span class="cov8" title="1">{
+        return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] </span><span class="cov8" title="1">{
+                return pipz.NewBackoff("backoff", p, maxAttempts, baseDelay)
+        }</span>
+}
+
+// WithTimeout wraps the pipeline with a timeout.
+// If processing takes longer than the specified duration, the operation
+// fails with a timeout error.
+func WithTimeout[T Validator](d time.Duration) Option[T] <span class="cov8" title="1">{
+        return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] </span><span class="cov8" title="1">{
+                return pipz.NewTimeout("timeout", p, d)
+        }</span>
+}
+
+// WithFallback wraps the pipeline with fallback processors.
+// If the primary pipeline fails, each fallback is tried in order until one succeeds.
+func WithFallback[T Validator](fallbacks ...pipz.Chainable[*Request[T]]) Option[T] <span class="cov8" title="1">{
+        return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] </span><span class="cov8" title="1">{
+                all := append([]pipz.Chainable[*Request[T]]{p}, fallbacks...)
+                return pipz.NewFallback("fallback", all...)
+        }</span>
+}
+
+// WithCircuitBreaker wraps the pipeline with circuit breaker protection.
+// After 'failures' consecutive failures, the circuit opens and rejects
+// further requests until 'recovery' time has passed.
+//
+// The circuit breaker has three states:
+//   - Closed: Normal operation, requests pass through
+//   - Open: After threshold failures, requests are rejected immediately
+//   - Half-Open: After recovery timeout, one request is allowed to test recovery
+//
+// Note: Circuit breaker is stateful and protects the entire pipeline.
+// There is no Use* equivalent - it only makes sense as a wrapper.
+func WithCircuitBreaker[T Validator](failures int, recovery time.Duration) Option[T] <span class="cov8" title="1">{
+        return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] </span><span class="cov8" title="1">{
+                return pipz.NewCircuitBreaker("circuit-breaker", p, failures, recovery)
+        }</span>
+}
+
+// WithErrorHandler adds error observation to the pipeline.
+// Errors are passed to the handler for logging, metrics, or alerting,
+// but the error still propagates. Use this for observability, not recovery.
+//
+// Note: There is no Use* equivalent - error handling wraps the pipeline.
+func WithErrorHandler[T Validator](handler pipz.Chainable[*pipz.Error[*Request[T]]]) Option[T] <span class="cov8" title="1">{
+        return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] </span><span class="cov8" title="1">{
+                return pipz.NewHandle("error-handler", p, handler)
+        }</span>
+}
+
+// -----------------------------------------------------------------------------
+// Pipeline Options - Middleware Composition
+// -----------------------------------------------------------------------------
+
+// WithMiddleware wraps the pipeline with a sequence of processors.
+// Processors execute in order, with the wrapped pipeline (callback) last.
+//
+// Use the Use* functions to create processors for common patterns,
+// or provide custom pipz.Chainable implementations directly.
+//
+// Example:
+//
+//        flux.New[Config](
+//            watcher,
+//            callback,
+//            flux.WithMiddleware(
+//                flux.UseEffect[Config]("log", logFn),
+//                flux.UseApply[Config]("enrich", enrichFn),
+//                flux.UseRateLimit[Config](10, 5),
+//            ),
+//            flux.WithCircuitBreaker[Config](5, 30*time.Second),
+//        ).Debounce(200 * time.Millisecond)
+func WithMiddleware[T Validator](processors ...pipz.Chainable[*Request[T]]) Option[T] <span class="cov8" title="1">{
+        return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] </span><span class="cov8" title="1">{
+                all := append(processors, p)
+                return pipz.NewSequence("middleware", all...)
+        }</span>
+}
+
+// -----------------------------------------------------------------------------
+// Middleware Processors - Adapters (Use*)
+// -----------------------------------------------------------------------------
+// These create processors for use inside WithMiddleware.
+// They transform or observe the request as it flows through the pipeline.
+
+// UseTransform creates a processor that transforms the request.
+// Cannot fail. Use for pure transformations that always succeed.
+func UseTransform[T Validator](name string, fn func(context.Context, *Request[T]) *Request[T]) pipz.Chainable[*Request[T]] <span class="cov8" title="1">{
+        return pipz.Transform(pipz.Name(name), fn)
+}</span>
+
+// UseApply creates a processor that can transform the request and fail.
+// Use for operations like enrichment, validation, or transformation
+// that may produce errors.
+func UseApply[T Validator](name string, fn func(context.Context, *Request[T]) (*Request[T], error)) pipz.Chainable[*Request[T]] <span class="cov8" title="1">{
+        return pipz.Apply(pipz.Name(name), fn)
+}</span>
+
+// UseEffect creates a processor that performs a side effect.
+// The request passes through unchanged. Use for logging, metrics,
+// or notifications that should not affect the configuration value.
+func UseEffect[T Validator](name string, fn func(context.Context, *Request[T]) error) pipz.Chainable[*Request[T]] <span class="cov8" title="1">{
+        return pipz.Effect(pipz.Name(name), fn)
+}</span>
+
+// UseMutate creates a processor that conditionally transforms the request.
+// The transformer is only applied if the condition returns true.
+func UseMutate[T Validator](name string, transformer func(context.Context, *Request[T]) *Request[T], condition func(context.Context, *Request[T]) bool) pipz.Chainable[*Request[T]] <span class="cov8" title="1">{
+        return pipz.Mutate(pipz.Name(name), transformer, condition)
+}</span>
+
+// UseEnrich creates a processor that attempts optional enhancement.
+// If the enrichment fails, the error is logged but processing continues
+// with the original request. Use for non-critical enhancements.
+func UseEnrich[T Validator](name string, fn func(context.Context, *Request[T]) (*Request[T], error)) pipz.Chainable[*Request[T]] <span class="cov8" title="1">{
+        return pipz.Enrich(pipz.Name(name), fn)
+}</span>
+
+// -----------------------------------------------------------------------------
+// Middleware Processors - Wrapping (Use*)
+// -----------------------------------------------------------------------------
+// These wrap another processor with reliability logic.
+
+// UseRetry wraps a processor with retry logic.
+// Failed operations are retried immediately up to maxAttempts times.
+func UseRetry[T Validator](maxAttempts int, processor pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] <span class="cov8" title="1">{
+        return pipz.NewRetry("retry", processor, maxAttempts)
+}</span>
+
+// UseBackoff wraps a processor with exponential backoff retry logic.
+// Failed operations are retried with increasing delays.
+func UseBackoff[T Validator](maxAttempts int, baseDelay time.Duration, processor pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] <span class="cov0" title="0">{
+        return pipz.NewBackoff("backoff", processor, maxAttempts, baseDelay)
+}</span>
+
+// UseTimeout wraps a processor with a deadline.
+// If processing takes longer than the specified duration, the operation fails.
+func UseTimeout[T Validator](d time.Duration, processor pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] <span class="cov8" title="1">{
+        return pipz.NewTimeout("timeout", processor, d)
+}</span>
+
+// UseFallback wraps a processor with fallback alternatives.
+// If the primary fails, each fallback is tried in order.
+func UseFallback[T Validator](primary pipz.Chainable[*Request[T]], fallbacks ...pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] <span class="cov8" title="1">{
+        all := append([]pipz.Chainable[*Request[T]]{primary}, fallbacks...)
+        return pipz.NewFallback("fallback", all...)
+}</span>
+
+// UseFilter wraps a processor with a condition.
+// If the condition returns false, the request passes through unchanged.
+func UseFilter[T Validator](name string, condition func(context.Context, *Request[T]) bool, processor pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] <span class="cov8" title="1">{
+        return pipz.NewFilter(pipz.Name(name), condition, processor)
+}</span>
+
+// -----------------------------------------------------------------------------
+// Middleware Processors - Standalone (Use*)
+// -----------------------------------------------------------------------------
+// These create standalone processors that don't wrap anything.
+
+// UseRateLimit creates a rate limiting processor.
+// Uses a token bucket algorithm with the specified rate (tokens per second)
+// and burst size. When tokens are exhausted, requests wait for availability.
+func UseRateLimit[T Validator](rate float64, burst int) pipz.Chainable[*Request[T]] <span class="cov8" title="1">{
+        return pipz.NewRateLimiter[*Request[T]]("rate-limiter", rate, burst)
+}</span>
+</pre>
+		
+		<pre class="file" id="file7" style="display: none">package flux
+
+// State represents the current state of a Capacitor.
+type State int32
+
+const (
+        // StateLoading indicates the Capacitor is initializing and has not yet
+        // processed any configuration.
+        StateLoading State = iota
+
+        // StateHealthy indicates the Capacitor has a valid configuration applied.
+        StateHealthy
+
+        // StateDegraded indicates the last configuration change failed validation
+        // or application. The previous valid configuration remains active.
+        StateDegraded
+
+        // StateEmpty indicates the initial configuration load failed and no valid
+        // configuration has ever been obtained. The Capacitor continues watching
+        // for valid updates.
+        StateEmpty
+)
+
+// String returns the string representation of the state.
+func (s State) String() string <span class="cov8" title="1">{
+        switch s </span>{
+        case StateLoading:<span class="cov8" title="1">
+                return "loading"</span>
+        case StateHealthy:<span class="cov8" title="1">
+                return "healthy"</span>
+        case StateDegraded:<span class="cov8" title="1">
+                return "degraded"</span>
+        case StateEmpty:<span class="cov8" title="1">
+                return "empty"</span>
+        default:<span class="cov8" title="1">
+                return "unknown"</span>
+        }
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
