@@ -15,7 +15,7 @@ func setupNATS(t *testing.T) jetstream.KeyValue {
 	t.Helper()
 	ctx := context.Background()
 
-	container, err := tcnats.Run(ctx, "nats:2.10-alpine", tcnats.WithArgument("--jetstream"))
+	container, err := tcnats.Run(ctx, "nats:2.10-alpine", tcnats.WithArgument("jetstream", ""))
 	if err != nil {
 		t.Fatalf("failed to start nats container: %v", err)
 	}

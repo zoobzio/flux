@@ -752,3 +752,51 @@ func TestUseBackoff_RetriesWithExponentialDelay(t *testing.T) {
 		t.Errorf("expected at least 2 attempts, got %d", attempts)
 	}
 }
+
+// Test identity for pipeline option.
+var testPipelineID = pipz.NewIdentity("test:pipeline", "Test pipeline")
+
+func TestWithPipeline_WrapsPipeline(t *testing.T) {
+	ctx := context.Background()
+	ch := make(chan []byte, 1)
+
+	var callbackCalled bool
+	capacitor := New[OptionTestConfig](
+		NewSyncChannelWatcher(ch),
+		func(_ context.Context, _, _ OptionTestConfig) error {
+			callbackCalled = true
+			return nil
+		},
+		WithPipeline[OptionTestConfig](testPipelineID),
+	).SyncMode()
+
+	ch <- []byte(`{"value": 42}`)
+	err := capacitor.Start(ctx)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !callbackCalled {
+		t.Error("expected callback to be called")
+	}
+}
+
+func TestWithPipeline_PropagatesErrors(t *testing.T) {
+	ctx := context.Background()
+	ch := make(chan []byte, 1)
+
+	capacitor := New[OptionTestConfig](
+		NewSyncChannelWatcher(ch),
+		func(_ context.Context, _, _ OptionTestConfig) error {
+			return errors.New("callback failed")
+		},
+		WithPipeline[OptionTestConfig](testPipelineID),
+	).SyncMode()
+
+	ch <- []byte(`{"value": 42}`)
+	err := capacitor.Start(ctx)
+
+	if err == nil {
+		t.Fatal("expected error to propagate through pipeline")
+	}
+}

@@ -156,3 +156,70 @@ func TestWatcher_ClosesOnContextCancel(t *testing.T) {
 		t.Fatal("timeout waiting for channel close")
 	}
 }
+
+func TestWatcher_WithField_ExtractsSpecificField(t *testing.T) {
+	client := setupFirestore(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	collection := "config"
+	document := "app"
+	fieldValue := `{"port": 9090}`
+
+	// Create document with a specific field
+	_, err := client.Collection(collection).Doc(document).Set(ctx, map[string]interface{}{
+		"config":   fieldValue,
+		"metadata": "ignored",
+	})
+	if err != nil {
+		t.Fatalf("failed to create document: %v", err)
+	}
+
+	watcher := New(client, collection, document, WithField("config"))
+	ch, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
+
+	select {
+	case data := <-ch:
+		if string(data) != fieldValue {
+			t.Errorf("expected %q, got %q", fieldValue, data)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for value")
+	}
+}
+
+func TestWatcher_WithField_HandlesBytes(t *testing.T) {
+	client := setupFirestore(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	collection := "config"
+	document := "app-bytes"
+	fieldValue := []byte(`{"binary": true}`)
+
+	// Create document with byte field
+	_, err := client.Collection(collection).Doc(document).Set(ctx, map[string]interface{}{
+		"config": fieldValue,
+	})
+	if err != nil {
+		t.Fatalf("failed to create document: %v", err)
+	}
+
+	watcher := New(client, collection, document, WithField("config"))
+	ch, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
+
+	select {
+	case data := <-ch:
+		if string(data) != string(fieldValue) {
+			t.Errorf("expected %q, got %q", fieldValue, data)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for value")
+	}
+}

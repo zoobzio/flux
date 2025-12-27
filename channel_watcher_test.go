@@ -115,3 +115,37 @@ func TestChannelWatcher_RespectsContextDuringSend(t *testing.T) {
 		// This is also acceptable - send was blocked and canceled
 	}
 }
+
+func TestChannelWatcher_CancelWhileBlockedOnSend(t *testing.T) {
+	// Unbuffered source channel
+	source := make(chan []byte)
+
+	watcher := NewChannelWatcher(source)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	watchOut, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
+
+	// Send a value that will be received by watcher goroutine
+	go func() {
+		source <- []byte("test")
+	}()
+
+	// Wait for value to be received by watcher goroutine
+	// It will now be blocked trying to send to watchOut (unbuffered)
+	time.Sleep(20 * time.Millisecond)
+
+	// Cancel context - this should unblock the send
+	cancel()
+
+	// watchOut should close cleanly
+	select {
+	case <-watchOut:
+		// Channel closed as expected
+	case <-time.After(100 * time.Millisecond):
+		t.Error("channel did not close after context cancel")
+	}
+}

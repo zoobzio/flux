@@ -125,3 +125,86 @@ func TestWatcher_Watch_EmitsOnWrite(t *testing.T) {
 		t.Fatal("timeout waiting for file update")
 	}
 }
+
+func TestWatcher_Watch_IgnoresChmod(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	if err := os.WriteFile(path, []byte(`{"v": 1}`), 0o600); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	watcher := New(path)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ch, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch failed: %v", err)
+	}
+
+	// Drain initial content
+	<-ch
+
+	// Chmod should not trigger an emit
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatalf("failed to chmod: %v", err)
+	}
+
+	// Give it a moment, then write to trigger an actual event
+	time.Sleep(50 * time.Millisecond)
+
+	if err := os.WriteFile(path, []byte(`{"v": 2}`), 0o644); err != nil {
+		t.Fatalf("failed to update file: %v", err)
+	}
+
+	// Should receive only the write update, not chmod
+	select {
+	case data := <-ch:
+		if string(data) != `{"v": 2}` {
+			t.Errorf("expected updated content, got %q", data)
+		}
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for file update")
+	}
+}
+
+func TestWatcher_Watch_MultipleWrites(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	if err := os.WriteFile(path, []byte(`{"v": 0}`), 0o600); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	watcher := New(path)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	ch, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch failed: %v", err)
+	}
+
+	// Drain initial content
+	<-ch
+
+	// Write multiple times
+	for i := 1; i <= 3; i++ {
+		content := []byte(`{"v": ` + string(rune('0'+i)) + `}`)
+		if err := os.WriteFile(path, content, 0o600); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Should receive at least one update
+	select {
+	case data := <-ch:
+		if data == nil {
+			t.Error("expected data, got nil")
+		}
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for updates")
+	}
+}

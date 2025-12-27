@@ -1029,6 +1029,54 @@ func TestCapacitor_Metrics_ProcessFailure(t *testing.T) {
 	}
 }
 
+func TestCapacitor_Metrics_UnmarshalFailure(t *testing.T) {
+	ctx := context.Background()
+	ch := make(chan []byte, 2)
+	metrics := &testMetricsProvider{}
+
+	capacitor := New[TestConfig](
+		NewSyncChannelWatcher(ch),
+		func(_ context.Context, _, _ TestConfig) error { return nil },
+	).SyncMode().Metrics(metrics)
+
+	ch <- []byte(`{"port": 8080, "host": "localhost"}`)
+	capacitor.Start(ctx)
+
+	// Invalid JSON - unmarshal failure
+	ch <- []byte(`{invalid json}`)
+	capacitor.Process(ctx)
+
+	if len(metrics.processFailures) != 1 {
+		t.Fatalf("expected 1 process failure, got %d", len(metrics.processFailures))
+	}
+	if metrics.processFailures[0].stage != "unmarshal" {
+		t.Errorf("expected unmarshal stage, got %s", metrics.processFailures[0].stage)
+	}
+}
+
+func TestCapacitor_Metrics_PipelineFailure(t *testing.T) {
+	ctx := context.Background()
+	ch := make(chan []byte, 1)
+	metrics := &testMetricsProvider{}
+
+	capacitor := New[TestConfig](
+		NewSyncChannelWatcher(ch),
+		func(_ context.Context, _, _ TestConfig) error {
+			return errors.New("callback failed")
+		},
+	).SyncMode().Metrics(metrics)
+
+	ch <- []byte(`{"port": 8080, "host": "localhost"}`)
+	capacitor.Start(ctx)
+
+	if len(metrics.processFailures) != 1 {
+		t.Fatalf("expected 1 process failure, got %d", len(metrics.processFailures))
+	}
+	if metrics.processFailures[0].stage != "pipeline" {
+		t.Errorf("expected pipeline stage, got %s", metrics.processFailures[0].stage)
+	}
+}
+
 func TestCapacitor_Metrics_ChangeReceived(t *testing.T) {
 	ctx := context.Background()
 	ch := make(chan []byte, 3)

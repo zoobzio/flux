@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/zoobzio/clockz"
+	"github.com/zoobzio/pipz"
 )
 
 // ComposeConfig is a test config for Compose tests.
@@ -858,6 +859,90 @@ func TestCompose_Metrics_ProcessFailure(t *testing.T) {
 	}
 	if metrics.processFailures[0].stage != "validate" {
 		t.Errorf("expected validate stage, got %s", metrics.processFailures[0].stage)
+	}
+}
+
+func TestCompose_Metrics_UnmarshalFailure(t *testing.T) {
+	ctx := context.Background()
+	ch1 := make(chan []byte, 2)
+	ch2 := make(chan []byte, 1)
+	metrics := &composeMetricsProvider{}
+
+	capacitor := Compose[ComposeConfig](
+		func(_ context.Context, _, configs []ComposeConfig) (ComposeConfig, error) {
+			return configs[0], nil
+		},
+		[]Watcher{NewSyncChannelWatcher(ch1), NewSyncChannelWatcher(ch2)},
+	).SyncMode().Metrics(metrics)
+
+	ch1 <- []byte(`{"port": 8080, "host": "localhost"}`)
+	ch2 <- []byte(`{"port": 9090, "host": "other"}`)
+	capacitor.Start(ctx)
+
+	// Invalid JSON - unmarshal failure
+	ch1 <- []byte(`{invalid json}`)
+	capacitor.Process(ctx)
+
+	if len(metrics.processFailures) != 1 {
+		t.Fatalf("expected 1 process failure, got %d", len(metrics.processFailures))
+	}
+	if metrics.processFailures[0].stage != "unmarshal" {
+		t.Errorf("expected unmarshal stage, got %s", metrics.processFailures[0].stage)
+	}
+}
+
+func TestCompose_Metrics_ReducerFailure(t *testing.T) {
+	ctx := context.Background()
+	ch1 := make(chan []byte, 1)
+	ch2 := make(chan []byte, 1)
+	metrics := &composeMetricsProvider{}
+
+	capacitor := Compose[ComposeConfig](
+		func(_ context.Context, _, _ []ComposeConfig) (ComposeConfig, error) {
+			return ComposeConfig{}, errors.New("reducer failed")
+		},
+		[]Watcher{NewSyncChannelWatcher(ch1), NewSyncChannelWatcher(ch2)},
+	).SyncMode().Metrics(metrics)
+
+	ch1 <- []byte(`{"port": 8080, "host": "localhost"}`)
+	ch2 <- []byte(`{"port": 9090, "host": "other"}`)
+	capacitor.Start(ctx)
+
+	if len(metrics.processFailures) != 1 {
+		t.Fatalf("expected 1 process failure, got %d", len(metrics.processFailures))
+	}
+	if metrics.processFailures[0].stage != "reducer" {
+		t.Errorf("expected reducer stage, got %s", metrics.processFailures[0].stage)
+	}
+}
+
+func TestCompose_Metrics_PipelineFailure(t *testing.T) {
+	ctx := context.Background()
+	ch1 := make(chan []byte, 1)
+	ch2 := make(chan []byte, 1)
+	metrics := &composeMetricsProvider{}
+
+	capacitor := Compose[ComposeConfig](
+		func(_ context.Context, _, configs []ComposeConfig) (ComposeConfig, error) {
+			return configs[0], nil
+		},
+		[]Watcher{NewSyncChannelWatcher(ch1), NewSyncChannelWatcher(ch2)},
+		WithMiddleware(
+			UseApply[ComposeConfig](pipz.NewIdentity("test:fail", "Failing middleware"), func(_ context.Context, _ *Request[ComposeConfig]) (*Request[ComposeConfig], error) {
+				return nil, errors.New("pipeline failed")
+			}),
+		),
+	).SyncMode().Metrics(metrics)
+
+	ch1 <- []byte(`{"port": 8080, "host": "localhost"}`)
+	ch2 <- []byte(`{"port": 9090, "host": "other"}`)
+	capacitor.Start(ctx)
+
+	if len(metrics.processFailures) != 1 {
+		t.Fatalf("expected 1 process failure, got %d", len(metrics.processFailures))
+	}
+	if metrics.processFailures[0].stage != "pipeline" {
+		t.Errorf("expected pipeline stage, got %s", metrics.processFailures[0].stage)
 	}
 }
 

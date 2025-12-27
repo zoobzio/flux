@@ -174,3 +174,137 @@ func TestWatcher_ClosesOnContextCancel(t *testing.T) {
 		t.Fatal("timeout waiting for channel close")
 	}
 }
+
+func TestWatcher_WaitsForNodeCreation(t *testing.T) {
+	conn := setupZookeeper(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	path := "/config/delayed"
+	value := []byte(`{"delayed": true}`)
+
+	// Create parent path
+	_, err := conn.Create("/config", nil, 0, zk.WorldACL(zk.PermAll))
+	if err != nil && err != zk.ErrNodeExists {
+		t.Fatalf("failed to create parent: %v", err)
+	}
+
+	// Start watching before node exists
+	watcher := New(conn, path)
+	ch, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
+
+	// Create node after a short delay
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_, err := conn.Create(path, value, 0, zk.WorldACL(zk.PermAll))
+		if err != nil {
+			t.Errorf("failed to create node: %v", err)
+		}
+	}()
+
+	// Should receive value once node is created
+	select {
+	case data := <-ch:
+		if string(data) != string(value) {
+			t.Errorf("expected %q, got %q", value, data)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for node creation")
+	}
+}
+
+func TestWatcher_HandlesNodeDeletion(t *testing.T) {
+	conn := setupZookeeper(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	path := "/config/deletable"
+	initial := []byte(`{"v": 1}`)
+	recreated := []byte(`{"v": 2}`)
+
+	// Create parent path
+	_, err := conn.Create("/config", nil, 0, zk.WorldACL(zk.PermAll))
+	if err != nil && err != zk.ErrNodeExists {
+		t.Fatalf("failed to create parent: %v", err)
+	}
+
+	_, err = conn.Create(path, initial, 0, zk.WorldACL(zk.PermAll))
+	if err != nil {
+		t.Fatalf("failed to create node: %v", err)
+	}
+
+	watcher := New(conn, path)
+	ch, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
+
+	// Drain initial value
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for initial value")
+	}
+
+	// Delete node
+	err = conn.Delete(path, -1)
+	if err != nil {
+		t.Fatalf("failed to delete node: %v", err)
+	}
+
+	// Recreate node with new value
+	time.Sleep(100 * time.Millisecond)
+	_, err = conn.Create(path, recreated, 0, zk.WorldACL(zk.PermAll))
+	if err != nil {
+		t.Fatalf("failed to recreate node: %v", err)
+	}
+
+	// Should receive new value after recreation
+	select {
+	case data := <-ch:
+		if string(data) != string(recreated) {
+			t.Errorf("expected %q, got %q", recreated, data)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for recreated value")
+	}
+}
+
+func TestWatcher_ContextCancelDuringWaitForNode(t *testing.T) {
+	conn := setupZookeeper(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+
+	path := "/config/never-created"
+
+	// Create parent path
+	_, err := conn.Create("/config", nil, 0, zk.WorldACL(zk.PermAll))
+	if err != nil && err != zk.ErrNodeExists {
+		t.Fatalf("failed to create parent: %v", err)
+	}
+
+	// Start watching non-existent node
+	watcher := New(conn, path)
+	ch, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
+
+	// Cancel context while waiting for node creation
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	// Channel should close without receiving a value
+	select {
+	case _, ok := <-ch:
+		if ok {
+			t.Error("expected channel to close without value")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for channel close")
+	}
+}
