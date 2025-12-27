@@ -8,7 +8,6 @@ use (
 	./pkg/firestore
 	./pkg/kubernetes
 	./pkg/nats
-	./pkg/postgres
 	./pkg/redis
 	./pkg/zookeeper
 	./testing/benchmarks

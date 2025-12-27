@@ -10,6 +10,22 @@ import (
 	"github.com/zoobzio/pipz"
 )
 
+// Test identities for options tests.
+var (
+	testDoubleID = pipz.NewIdentity("test:double", "Test double processor")
+	testTripleID           = pipz.NewIdentity("test:triple", "Test triple processor")
+	testLogID              = pipz.NewIdentity("test:log", "Test log effect")
+	testMarkID             = pipz.NewIdentity("test:mark", "Test mark processor")
+	testFallbackID         = pipz.NewIdentity("test:fallback", "Test fallback processor")
+	testErrorObserverID    = pipz.NewIdentity("test:error-observer", "Test error observer")
+	testDoubleIfPositiveID = pipz.NewIdentity("test:double-if-positive", "Test conditional double")
+	testFailingEnrichID    = pipz.NewIdentity("test:failing-enrichment", "Test failing enrichment")
+	testFlakyID            = pipz.NewIdentity("test:flaky", "Test flaky processor")
+	testSlowID             = pipz.NewIdentity("test:slow", "Test slow processor")
+	testPrimaryID          = pipz.NewIdentity("test:primary", "Test primary processor")
+	testOnlyLargeID        = pipz.NewIdentity("test:only-large", "Test only large filter")
+)
+
 // OptionTestConfig is a test config for option tests.
 type OptionTestConfig struct {
 	Value int `json:"value"`
@@ -116,7 +132,7 @@ func TestWithMiddleware_UseApply_TransformsConfig(t *testing.T) {
 			return nil
 		},
 		WithMiddleware(
-			UseApply[OptionTestConfig]("double", func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
+			UseApply[OptionTestConfig](testDoubleID, func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
 				req.Current.Value *= 2
 				return req, nil
 			}),
@@ -145,7 +161,7 @@ func TestWithMiddleware_UseEffect_ExecutesSideEffect(t *testing.T) {
 			return nil
 		},
 		WithMiddleware(
-			UseEffect[OptionTestConfig]("log", func(_ context.Context, _ *Request[OptionTestConfig]) error {
+			UseEffect[OptionTestConfig](testLogID, func(_ context.Context, _ *Request[OptionTestConfig]) error {
 				effectCalled = true
 				return nil
 			}),
@@ -175,7 +191,7 @@ func TestWithMiddleware_UseTransform_TransformsWithoutError(t *testing.T) {
 			return nil
 		},
 		WithMiddleware(
-			UseTransform[OptionTestConfig]("triple", func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
+			UseTransform[OptionTestConfig](testTripleID, func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
 				req.Current.Value *= 3
 				return req
 			}),
@@ -207,11 +223,11 @@ func TestWithMiddleware_MultipleProcessors_ExecuteInOrder(t *testing.T) {
 			return nil
 		},
 		WithMiddleware(
-			UseTransform[OptionTestConfig]("double", func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
+			UseTransform[OptionTestConfig](testDoubleID, func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
 				req.Current.Value *= 2
 				return req
 			}),
-			UseTransform[OptionTestConfig]("triple", func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
+			UseTransform[OptionTestConfig](testTripleID, func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
 				req.Current.Value *= 3
 				return req
 			}),
@@ -278,7 +294,7 @@ func TestPipelineAndInstanceConfig(t *testing.T) {
 			return nil
 		},
 		WithMiddleware( // pipeline option
-			UseTransform[OptionTestConfig]("mark", func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
+			UseTransform[OptionTestConfig](testMarkID, func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
 				transformCalled = true
 				return req
 			}),
@@ -338,7 +354,11 @@ func TestUseRateLimit_ThrottlesRequests(t *testing.T) {
 			return nil
 		},
 		WithMiddleware(
-			UseRateLimit[OptionTestConfig](100, 10), // 100 per second, burst of 10
+			UseRateLimit[OptionTestConfig](100, 10, // 100 per second, burst of 10
+				UseTransform[OptionTestConfig](testMarkID, func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
+					return req
+				}),
+			),
 		),
 	).SyncMode()
 
@@ -365,7 +385,7 @@ func TestWithFallback_UsesFallbackOnFailure(t *testing.T) {
 
 	// WithFallback wraps the pipeline (including callback) as primary.
 	// If the primary fails, fallback processors are tried.
-	fallback := UseApply[OptionTestConfig]("fallback", func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
+	fallback := UseApply[OptionTestConfig](testFallbackID, func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
 		fallbackCalled = true
 		req.Current.Value = 99
 		return req, nil
@@ -403,7 +423,7 @@ func TestWithErrorHandler_ObservesErrors(t *testing.T) {
 	ch := make(chan []byte, 2)
 
 	var observedError string
-	errorHandler := pipz.Effect(pipz.Name("error-observer"), func(_ context.Context, err *pipz.Error[*Request[OptionTestConfig]]) error {
+	errorHandler := pipz.Effect(testErrorObserverID, func(_ context.Context, err *pipz.Error[*Request[OptionTestConfig]]) error {
 		observedError = err.Err.Error()
 		return nil
 	})
@@ -436,7 +456,7 @@ func TestUseMutate_ConditionalTransform(t *testing.T) {
 			return nil
 		},
 		WithMiddleware(
-			UseMutate[OptionTestConfig]("double-if-positive",
+			UseMutate[OptionTestConfig](testDoubleIfPositiveID,
 				func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
 					req.Current.Value *= 2
 					return req
@@ -471,7 +491,7 @@ func TestUseMutate_SkipsWhenConditionFalse(t *testing.T) {
 			return nil
 		},
 		WithMiddleware(
-			UseMutate[OptionTestConfig]("double-if-positive",
+			UseMutate[OptionTestConfig](testDoubleIfPositiveID,
 				func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
 					req.Current.Value *= 2
 					return req
@@ -506,7 +526,7 @@ func TestUseEnrich_ContinuesOnFailure(t *testing.T) {
 			return nil
 		},
 		WithMiddleware(
-			UseEnrich[OptionTestConfig]("failing-enrichment", func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
+			UseEnrich[OptionTestConfig](testFailingEnrichID, func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
 				return req, errors.New("enrichment failed")
 			}),
 		),
@@ -536,7 +556,7 @@ func TestUseRetry_InlineRetry(t *testing.T) {
 		},
 		WithMiddleware(
 			UseRetry[OptionTestConfig](3,
-				UseApply[OptionTestConfig]("flaky", func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
+				UseApply[OptionTestConfig](testFlakyID, func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
 					attempts++
 					if attempts < 3 {
 						return req, errors.New("transient")
@@ -569,7 +589,7 @@ func TestUseTimeout_InlineTimeout(t *testing.T) {
 		},
 		WithMiddleware(
 			UseTimeout[OptionTestConfig](50*time.Millisecond,
-				UseApply[OptionTestConfig]("slow", func(ctx context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
+				UseApply[OptionTestConfig](testSlowID, func(ctx context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
 					select {
 					case <-time.After(1 * time.Second):
 						return req, nil
@@ -602,10 +622,10 @@ func TestUseFallback_InlineFallback(t *testing.T) {
 		},
 		WithMiddleware(
 			UseFallback[OptionTestConfig](
-				UseApply[OptionTestConfig]("primary", func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
+				UseApply[OptionTestConfig](testPrimaryID, func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
 					return req, errors.New("primary failed")
 				}),
-				UseApply[OptionTestConfig]("fallback", func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
+				UseApply[OptionTestConfig](testFallbackID, func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
 					req.Current.Value = 99
 					return req, nil
 				}),
@@ -637,11 +657,11 @@ func TestUseFilter_SkipsWhenConditionFalse(t *testing.T) {
 			return nil
 		},
 		WithMiddleware(
-			UseFilter[OptionTestConfig]("only-large",
+			UseFilter[OptionTestConfig](testOnlyLargeID,
 				func(_ context.Context, req *Request[OptionTestConfig]) bool {
 					return req.Current.Value > 100
 				},
-				UseTransform[OptionTestConfig]("double", func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
+				UseTransform[OptionTestConfig](testDoubleID, func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
 					transformCalled = true
 					req.Current.Value *= 2
 					return req
@@ -676,11 +696,11 @@ func TestUseFilter_ExecutesWhenConditionTrue(t *testing.T) {
 			return nil
 		},
 		WithMiddleware(
-			UseFilter[OptionTestConfig]("only-large",
+			UseFilter[OptionTestConfig](testOnlyLargeID,
 				func(_ context.Context, req *Request[OptionTestConfig]) bool {
 					return req.Current.Value > 10
 				},
-				UseTransform[OptionTestConfig]("double", func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
+				UseTransform[OptionTestConfig](testDoubleID, func(_ context.Context, req *Request[OptionTestConfig]) *Request[OptionTestConfig] {
 					req.Current.Value *= 2
 					return req
 				}),
@@ -711,7 +731,7 @@ func TestUseBackoff_RetriesWithExponentialDelay(t *testing.T) {
 		},
 		WithMiddleware(
 			UseBackoff[OptionTestConfig](3, 1*time.Millisecond,
-				UseApply[OptionTestConfig]("flaky", func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
+				UseApply[OptionTestConfig](testFlakyID, func(_ context.Context, req *Request[OptionTestConfig]) (*Request[OptionTestConfig], error) {
 					attempts++
 					if attempts < 2 {
 						return req, errors.New("transient")

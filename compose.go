@@ -93,7 +93,7 @@ func Compose[T Validator](
 ) *CompositeCapacitor[T] {
 	// Create a passthrough terminal for CompositeCapacitor
 	// The actual reducer is called in process() before the pipeline
-	terminal := pipz.Transform(pipz.Name("passthrough"), func(_ context.Context, req *Request[T]) *Request[T] {
+	terminal := pipz.Transform(passthroughID, func(_ context.Context, req *Request[T]) *Request[T] {
 		return req
 	})
 	pipeline := buildPipeline(terminal, opts)

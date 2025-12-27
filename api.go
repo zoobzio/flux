@@ -45,7 +45,6 @@
 //   - pkg/redis: Redis keyspace notifications
 //   - pkg/consul: Consul blocking queries
 //   - pkg/etcd: etcd Watch API
-//   - pkg/postgres: PostgreSQL LISTEN/NOTIFY
 //   - pkg/nats: NATS JetStream KV
 //   - pkg/kubernetes: ConfigMap/Secret watch
 //   - pkg/zookeeper: ZooKeeper node watch
@@ -165,7 +164,7 @@ func New[T Validator](
 	fn func(ctx context.Context, prev, curr T) error,
 	opts ...Option[T],
 ) *Capacitor[T] {
-	terminal := pipz.Effect(pipz.Name("callback"), func(ctx context.Context, req *Request[T]) error {
+	terminal := pipz.Effect(callbackID, func(ctx context.Context, req *Request[T]) error {
 		return fn(ctx, req.Previous, req.Current)
 	})
 	pipeline := buildPipeline(terminal, opts)
@@ -243,7 +242,7 @@ func (c *Capacitor[T]) OnStop(fn func(State)) *Capacitor[T] {
 	return c
 }
 
-// ErrorHistory sets the number of recent errors to retain.
+// ErrorHistorySize sets the number of recent errors to retain.
 // When set, ErrorHistory() returns up to this many recent errors.
 // Use 0 (default) to only retain the most recent error via LastError().
 // Must be called before Start().

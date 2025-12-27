@@ -91,7 +91,7 @@ func main() {
 - **Safe by default** — Invalid config rejected, previous retained, callback only sees valid data
 - **Four-state machine** — Loading, Healthy, Degraded, Empty with clear transitions
 - **Multi-source composition** — Merge configs from files, Redis, Kubernetes, environment
-- **Pluggable providers** — File, Redis, Consul, etcd, PostgreSQL, NATS, Kubernetes, ZooKeeper, Firestore
+- **Pluggable providers** — File, Redis, Consul, etcd, NATS, Kubernetes, ZooKeeper, Firestore
 - **Observable** — [capitan](https://github.com/zoobzio/capitan) signals for state changes, failures, metrics
 - **Testable** — Sync mode and channel watchers for deterministic tests
 

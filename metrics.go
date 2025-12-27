@@ -24,7 +24,14 @@ type MetricsProvider interface {
 // Use this as an embedded type to implement only the methods you need.
 type NoOpMetricsProvider struct{}
 
-func (NoOpMetricsProvider) OnStateChange(_, _ State)                   {}
-func (NoOpMetricsProvider) OnProcessSuccess(_ time.Duration)           {}
+// OnStateChange implements MetricsProvider.
+func (NoOpMetricsProvider) OnStateChange(_, _ State) {}
+
+// OnProcessSuccess implements MetricsProvider.
+func (NoOpMetricsProvider) OnProcessSuccess(_ time.Duration) {}
+
+// OnProcessFailure implements MetricsProvider.
 func (NoOpMetricsProvider) OnProcessFailure(_ string, _ time.Duration) {}
-func (NoOpMetricsProvider) OnChangeReceived()                          {}
+
+// OnChangeReceived implements MetricsProvider.
+func (NoOpMetricsProvider) OnChangeReceived() {}

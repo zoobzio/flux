@@ -7,6 +7,28 @@ import (
 	"github.com/zoobzio/pipz"
 )
 
+// Internal identities for reliability options.
+var (
+	callbackID       = pipz.NewIdentity("flux:callback", "User callback invocation")
+	passthroughID    = pipz.NewIdentity("flux:passthrough", "Composite passthrough")
+	retryID          = pipz.NewIdentity("flux:retry", "Retries failed operations")
+	backoffID        = pipz.NewIdentity("flux:backoff", "Exponential backoff retry")
+	timeoutID        = pipz.NewIdentity("flux:timeout", "Operation timeout")
+	fallbackID       = pipz.NewIdentity("flux:fallback", "Fallback alternatives")
+	circuitBreakerID = pipz.NewIdentity("flux:circuit-breaker", "Circuit breaker protection")
+	errorHandlerID   = pipz.NewIdentity("flux:error-handler", "Error handling")
+	middlewareID     = pipz.NewIdentity("flux:middleware", "Middleware sequence")
+	rateLimiterID    = pipz.NewIdentity("flux:rate-limiter", "Rate limiting")
+)
+
+// Middleware identities for Use* wrapper functions.
+var (
+	middlewareRetryID    = pipz.NewIdentity("flux:middleware:retry", "Middleware retry")
+	middlewareBackoffID  = pipz.NewIdentity("flux:middleware:backoff", "Middleware backoff")
+	middlewareTimeoutID  = pipz.NewIdentity("flux:middleware:timeout", "Middleware timeout")
+	middlewareFallbackID = pipz.NewIdentity("flux:middleware:fallback", "Middleware fallback")
+)
+
 // Option configures the processing pipeline for a Capacitor or CompositeCapacitor.
 // Pipeline options wrap the callback with middleware for retry, timeout,
 // circuit breaking, and other reliability patterns.
@@ -35,7 +57,7 @@ func buildPipeline[T Validator](terminal pipz.Chainable[*Request[T]], opts []Opt
 // For exponential backoff between retries, use WithBackoff instead.
 func WithRetry[T Validator](maxAttempts int) Option[T] {
 	return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
-		return pipz.NewRetry("retry", p, maxAttempts)
+		return pipz.NewRetry(retryID, p, maxAttempts)
 	}
 }
 
@@ -43,7 +65,7 @@ func WithRetry[T Validator](maxAttempts int) Option[T] {
 // Failed operations are retried with increasing delays: baseDelay, 2*baseDelay, 4*baseDelay, etc.
 func WithBackoff[T Validator](maxAttempts int, baseDelay time.Duration) Option[T] {
 	return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
-		return pipz.NewBackoff("backoff", p, maxAttempts, baseDelay)
+		return pipz.NewBackoff(backoffID, p, maxAttempts, baseDelay)
 	}
 }
 
@@ -52,7 +74,7 @@ func WithBackoff[T Validator](maxAttempts int, baseDelay time.Duration) Option[T
 // fails with a timeout error.
 func WithTimeout[T Validator](d time.Duration) Option[T] {
 	return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
-		return pipz.NewTimeout("timeout", p, d)
+		return pipz.NewTimeout(timeoutID, p, d)
 	}
 }
 
@@ -61,7 +83,7 @@ func WithTimeout[T Validator](d time.Duration) Option[T] {
 func WithFallback[T Validator](fallbacks ...pipz.Chainable[*Request[T]]) Option[T] {
 	return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
 		all := append([]pipz.Chainable[*Request[T]]{p}, fallbacks...)
-		return pipz.NewFallback("fallback", all...)
+		return pipz.NewFallback(fallbackID, all...)
 	}
 }
 
@@ -78,7 +100,7 @@ func WithFallback[T Validator](fallbacks ...pipz.Chainable[*Request[T]]) Option[
 // There is no Use* equivalent - it only makes sense as a wrapper.
 func WithCircuitBreaker[T Validator](failures int, recovery time.Duration) Option[T] {
 	return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
-		return pipz.NewCircuitBreaker("circuit-breaker", p, failures, recovery)
+		return pipz.NewCircuitBreaker(circuitBreakerID, p, failures, recovery)
 	}
 }
 
@@ -89,7 +111,33 @@ func WithCircuitBreaker[T Validator](failures int, recovery time.Duration) Optio
 // Note: There is no Use* equivalent - error handling wraps the pipeline.
 func WithErrorHandler[T Validator](handler pipz.Chainable[*pipz.Error[*Request[T]]]) Option[T] {
 	return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
-		return pipz.NewHandle("error-handler", p, handler)
+		return pipz.NewHandle(errorHandlerID, p, handler)
+	}
+}
+
+// WithPipeline wraps the entire processing pipeline with a pipz.Pipeline for
+// correlated tracing. Each Process() call generates a unique execution ID,
+// while the pipeline ID remains stable (derived from the identity).
+//
+// Use pipz.ExecutionIDFromContext and pipz.PipelineIDFromContext in middleware
+// or signal handlers to extract correlation IDs for observability.
+//
+// This option should typically be applied last (outermost) to ensure all
+// nested processors have access to the correlation context.
+//
+// Example:
+//
+//	var configPipelineID = pipz.NewIdentity("myapp:config", "Configuration pipeline")
+//
+//	capacitor := flux.New[Config](
+//	    watcher,
+//	    callback,
+//	    flux.WithRetry[Config](3),
+//	    flux.WithPipeline[Config](configPipelineID),
+//	)
+func WithPipeline[T Validator](identity pipz.Identity) Option[T] {
+	return func(p pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
+		return pipz.NewPipeline(identity, p)
 	}
 }
 
@@ -120,7 +168,7 @@ func WithMiddleware[T Validator](processors ...pipz.Chainable[*Request[T]]) Opti
 		all := make([]pipz.Chainable[*Request[T]], 0, len(processors)+1)
 		all = append(all, processors...)
 		all = append(all, p)
-		return pipz.NewSequence("middleware", all...)
+		return pipz.NewSequence(middlewareID, all...)
 	}
 }
 
@@ -132,35 +180,35 @@ func WithMiddleware[T Validator](processors ...pipz.Chainable[*Request[T]]) Opti
 
 // UseTransform creates a processor that transforms the request.
 // Cannot fail. Use for pure transformations that always succeed.
-func UseTransform[T Validator](name string, fn func(context.Context, *Request[T]) *Request[T]) pipz.Chainable[*Request[T]] {
-	return pipz.Transform(pipz.Name(name), fn)
+func UseTransform[T Validator](identity pipz.Identity, fn func(context.Context, *Request[T]) *Request[T]) pipz.Chainable[*Request[T]] {
+	return pipz.Transform(identity, fn)
 }
 
 // UseApply creates a processor that can transform the request and fail.
 // Use for operations like enrichment, validation, or transformation
 // that may produce errors.
-func UseApply[T Validator](name string, fn func(context.Context, *Request[T]) (*Request[T], error)) pipz.Chainable[*Request[T]] {
-	return pipz.Apply(pipz.Name(name), fn)
+func UseApply[T Validator](identity pipz.Identity, fn func(context.Context, *Request[T]) (*Request[T], error)) pipz.Chainable[*Request[T]] {
+	return pipz.Apply(identity, fn)
 }
 
 // UseEffect creates a processor that performs a side effect.
 // The request passes through unchanged. Use for logging, metrics,
 // or notifications that should not affect the configuration value.
-func UseEffect[T Validator](name string, fn func(context.Context, *Request[T]) error) pipz.Chainable[*Request[T]] {
-	return pipz.Effect(pipz.Name(name), fn)
+func UseEffect[T Validator](identity pipz.Identity, fn func(context.Context, *Request[T]) error) pipz.Chainable[*Request[T]] {
+	return pipz.Effect(identity, fn)
 }
 
 // UseMutate creates a processor that conditionally transforms the request.
 // The transformer is only applied if the condition returns true.
-func UseMutate[T Validator](name string, transformer func(context.Context, *Request[T]) *Request[T], condition func(context.Context, *Request[T]) bool) pipz.Chainable[*Request[T]] {
-	return pipz.Mutate(pipz.Name(name), transformer, condition)
+func UseMutate[T Validator](identity pipz.Identity, transformer func(context.Context, *Request[T]) *Request[T], condition func(context.Context, *Request[T]) bool) pipz.Chainable[*Request[T]] {
+	return pipz.Mutate(identity, transformer, condition)
 }
 
 // UseEnrich creates a processor that attempts optional enhancement.
 // If the enrichment fails, the error is logged but processing continues
 // with the original request. Use for non-critical enhancements.
-func UseEnrich[T Validator](name string, fn func(context.Context, *Request[T]) (*Request[T], error)) pipz.Chainable[*Request[T]] {
-	return pipz.Enrich(pipz.Name(name), fn)
+func UseEnrich[T Validator](identity pipz.Identity, fn func(context.Context, *Request[T]) (*Request[T], error)) pipz.Chainable[*Request[T]] {
+	return pipz.Enrich(identity, fn)
 }
 
 // -----------------------------------------------------------------------------
@@ -171,42 +219,37 @@ func UseEnrich[T Validator](name string, fn func(context.Context, *Request[T]) (
 // UseRetry wraps a processor with retry logic.
 // Failed operations are retried immediately up to maxAttempts times.
 func UseRetry[T Validator](maxAttempts int, processor pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
-	return pipz.NewRetry("retry", processor, maxAttempts)
+	return pipz.NewRetry(middlewareRetryID, processor, maxAttempts)
 }
 
 // UseBackoff wraps a processor with exponential backoff retry logic.
 // Failed operations are retried with increasing delays.
 func UseBackoff[T Validator](maxAttempts int, baseDelay time.Duration, processor pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
-	return pipz.NewBackoff("backoff", processor, maxAttempts, baseDelay)
+	return pipz.NewBackoff(middlewareBackoffID, processor, maxAttempts, baseDelay)
 }
 
 // UseTimeout wraps a processor with a deadline.
 // If processing takes longer than the specified duration, the operation fails.
 func UseTimeout[T Validator](d time.Duration, processor pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
-	return pipz.NewTimeout("timeout", processor, d)
+	return pipz.NewTimeout(middlewareTimeoutID, processor, d)
 }
 
 // UseFallback wraps a processor with fallback alternatives.
 // If the primary fails, each fallback is tried in order.
 func UseFallback[T Validator](primary pipz.Chainable[*Request[T]], fallbacks ...pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
 	all := append([]pipz.Chainable[*Request[T]]{primary}, fallbacks...)
-	return pipz.NewFallback("fallback", all...)
+	return pipz.NewFallback(middlewareFallbackID, all...)
 }
 
 // UseFilter wraps a processor with a condition.
 // If the condition returns false, the request passes through unchanged.
-func UseFilter[T Validator](name string, condition func(context.Context, *Request[T]) bool, processor pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
-	return pipz.NewFilter(pipz.Name(name), condition, processor)
+func UseFilter[T Validator](identity pipz.Identity, condition func(context.Context, *Request[T]) bool, processor pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
+	return pipz.NewFilter(identity, condition, processor)
 }
 
-// -----------------------------------------------------------------------------
-// Middleware Processors - Standalone (Use*)
-// -----------------------------------------------------------------------------
-// These create standalone processors that don't wrap anything.
-
-// UseRateLimit creates a rate limiting processor.
+// UseRateLimit wraps a processor with rate limiting.
 // Uses a token bucket algorithm with the specified rate (tokens per second)
 // and burst size. When tokens are exhausted, requests wait for availability.
-func UseRateLimit[T Validator](rate float64, burst int) pipz.Chainable[*Request[T]] {
-	return pipz.NewRateLimiter[*Request[T]]("rate-limiter", rate, burst)
+func UseRateLimit[T Validator](rate float64, burst int, processor pipz.Chainable[*Request[T]]) pipz.Chainable[*Request[T]] {
+	return pipz.NewRateLimiter(rateLimiterID, rate, burst, processor)
 }
