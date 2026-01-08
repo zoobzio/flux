@@ -1,11 +1,11 @@
-# flux/pkg/zookeeper
+# flux/file
 
-ZooKeeper watcher for flux using the native Watch API.
+File watcher for flux using fsnotify.
 
 ## Installation
 
 ```bash
-go get github.com/zoobzio/flux/pkg/zookeeper
+go get github.com/zoobzio/flux/file
 ```
 
 ## Usage
@@ -16,11 +16,9 @@ package main
 import (
     "context"
     "log"
-    "time"
 
-    "github.com/go-zookeeper/zk"
     "github.com/zoobzio/flux"
-    fluxzk "github.com/zoobzio/flux/pkg/zookeeper"
+    "github.com/zoobzio/flux/file"
 )
 
 type Config struct {
@@ -31,14 +29,8 @@ type Config struct {
 func main() {
     ctx := context.Background()
 
-    conn, _, err := zk.Connect([]string{"localhost:2181"}, 5*time.Second)
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer conn.Close()
-
     capacitor := flux.New[Config](
-        fluxzk.New(conn, "/config/myapp"),
+        file.New("/etc/myapp/config.json"),
         func(prev, curr Config) error {
             log.Printf("config updated: %+v", curr)
             return nil
@@ -54,12 +46,6 @@ func main() {
 }
 ```
 
-## Setup
+## Requirements
 
-Create the ZooKeeper node before use:
-
-```bash
-zkCli.sh
-create /config ""
-create /config/myapp '{"port": 8080, "host": "localhost"}'
-```
+None - uses fsnotify which works on Linux, macOS, and Windows.

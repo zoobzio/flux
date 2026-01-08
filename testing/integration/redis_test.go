@@ -11,7 +11,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/zoobzio/flux"
-	fluxredis "github.com/zoobzio/flux/pkg/redis"
+	fluxredis "github.com/zoobzio/flux/redis"
 )
 
 func setupRedis(t *testing.T) *redis.Client {

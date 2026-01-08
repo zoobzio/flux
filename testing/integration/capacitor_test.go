@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/zoobzio/flux"
-	"github.com/zoobzio/flux/pkg/file"
+	"github.com/zoobzio/flux/file"
 )
 
 type appConfig struct {

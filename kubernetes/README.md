@@ -1,11 +1,11 @@
-# flux/pkg/kubernetes
+# flux/kubernetes
 
 Kubernetes watcher for flux using ConfigMap and Secret Watch API.
 
 ## Installation
 
 ```bash
-go get github.com/zoobzio/flux/pkg/kubernetes
+go get github.com/zoobzio/flux/kubernetes
 ```
 
 ## Usage
@@ -22,7 +22,7 @@ import (
     "k8s.io/client-go/kubernetes"
     "k8s.io/client-go/rest"
     "github.com/zoobzio/flux"
-    fluxk8s "github.com/zoobzio/flux/pkg/kubernetes"
+    fluxk8s "github.com/zoobzio/flux/kubernetes"
 )
 
 type Config struct {

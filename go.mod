@@ -2,7 +2,7 @@ module github.com/zoobzio/flux
 
 go 1.24.0
 
-toolchain go1.24.5
+toolchain go1.25.0
 
 require (
 	github.com/zoobzio/capitan v0.1.0

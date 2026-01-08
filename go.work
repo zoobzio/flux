@@ -2,14 +2,15 @@ go 1.24.0
 
 use (
 	.
-	./pkg/consul
-	./pkg/etcd
-	./pkg/file
-	./pkg/firestore
-	./pkg/kubernetes
-	./pkg/nats
-	./pkg/redis
-	./pkg/zookeeper
+	./consul
+	./etcd
+	./file
+	./firestore
+	./kubernetes
+	./nats
+	./redis
+	./zookeeper
+	./testing
 	./testing/benchmarks
 	./testing/integration
 )

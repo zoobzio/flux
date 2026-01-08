@@ -7,8 +7,8 @@ require (
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/redis v0.40.0
 	github.com/zoobzio/flux v0.0.0-00010101000000-000000000000
-	github.com/zoobzio/flux/pkg/file v0.0.0-00010101000000-000000000000
-	github.com/zoobzio/flux/pkg/redis v0.0.0-00010101000000-000000000000
+	github.com/zoobzio/flux/file v0.0.0-00010101000000-000000000000
+	github.com/zoobzio/flux/redis v0.0.0-00010101000000-000000000000
 	k8s.io/api v0.33.1
 	k8s.io/apimachinery v0.33.1
 	k8s.io/client-go v0.33.1
@@ -109,8 +109,8 @@ require (
 
 replace github.com/zoobzio/flux => ../../
 
-replace github.com/zoobzio/flux/pkg/file => ../../pkg/file
+replace github.com/zoobzio/flux/file => ../../file
 
-replace github.com/zoobzio/flux/pkg/redis => ../../pkg/redis
+replace github.com/zoobzio/flux/redis => ../../redis
 
-replace github.com/zoobzio/flux/pkg/kubernetes => ../../pkg/kubernetes
+replace github.com/zoobzio/flux/kubernetes => ../../kubernetes

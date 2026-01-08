@@ -1,11 +1,11 @@
-# flux/pkg/redis
+# flux/consul
 
-Redis watcher for flux using keyspace notifications.
+Consul KV watcher for flux using blocking queries.
 
 ## Installation
 
 ```bash
-go get github.com/zoobzio/flux/pkg/redis
+go get github.com/zoobzio/flux/consul
 ```
 
 ## Usage
@@ -17,9 +17,9 @@ import (
     "context"
     "log"
 
-    "github.com/redis/go-redis/v9"
+    "github.com/hashicorp/consul/api"
     "github.com/zoobzio/flux"
-    fluxredis "github.com/zoobzio/flux/pkg/redis"
+    fluxconsul "github.com/zoobzio/flux/consul"
 )
 
 type Config struct {
@@ -30,12 +30,13 @@ type Config struct {
 func main() {
     ctx := context.Background()
 
-    client := redis.NewClient(&redis.Options{
-        Addr: "localhost:6379",
-    })
+    client, err := api.NewClient(api.DefaultConfig())
+    if err != nil {
+        log.Fatalf("failed to create consul client: %v", err)
+    }
 
     capacitor := flux.New[Config](
-        fluxredis.New(client, "myapp:config"),
+        fluxconsul.New(client, "myapp/config"),
         func(prev, curr Config) error {
             log.Printf("config updated: %+v", curr)
             return nil
@@ -53,14 +54,11 @@ func main() {
 
 ## Requirements
 
-Redis must have keyspace notifications enabled:
+A running Consul agent. By default connects to `localhost:8500`.
+
+Configure via environment variables:
 
 ```bash
-redis-cli CONFIG SET notify-keyspace-events KEA
-```
-
-Or in `redis.conf`:
-
-```
-notify-keyspace-events KEA
+export CONSUL_HTTP_ADDR=consul.example.com:8500
+export CONSUL_HTTP_TOKEN=your-acl-token
 ```

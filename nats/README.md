@@ -1,11 +1,11 @@
-# flux/pkg/nats
+# flux/nats
 
 NATS watcher for flux using JetStream KV Watch API.
 
 ## Installation
 
 ```bash
-go get github.com/zoobzio/flux/pkg/nats
+go get github.com/zoobzio/flux/nats
 ```
 
 ## Usage
@@ -20,7 +20,7 @@ import (
     "github.com/nats-io/nats.go"
     "github.com/nats-io/nats.go/jetstream"
     "github.com/zoobzio/flux"
-    fluxnats "github.com/zoobzio/flux/pkg/nats"
+    fluxnats "github.com/zoobzio/flux/nats"
 )
 
 type Config struct {

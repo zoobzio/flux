@@ -1,11 +1,11 @@
-# flux/pkg/consul
+# flux/zookeeper
 
-Consul KV watcher for flux using blocking queries.
+ZooKeeper watcher for flux using the native Watch API.
 
 ## Installation
 
 ```bash
-go get github.com/zoobzio/flux/pkg/consul
+go get github.com/zoobzio/flux/zookeeper
 ```
 
 ## Usage
@@ -16,10 +16,11 @@ package main
 import (
     "context"
     "log"
+    "time"
 
-    "github.com/hashicorp/consul/api"
+    "github.com/go-zookeeper/zk"
     "github.com/zoobzio/flux"
-    fluxconsul "github.com/zoobzio/flux/pkg/consul"
+    fluxzk "github.com/zoobzio/flux/zookeeper"
 )
 
 type Config struct {
@@ -30,13 +31,14 @@ type Config struct {
 func main() {
     ctx := context.Background()
 
-    client, err := api.NewClient(api.DefaultConfig())
+    conn, _, err := zk.Connect([]string{"localhost:2181"}, 5*time.Second)
     if err != nil {
-        log.Fatalf("failed to create consul client: %v", err)
+        log.Fatal(err)
     }
+    defer conn.Close()
 
     capacitor := flux.New[Config](
-        fluxconsul.New(client, "myapp/config"),
+        fluxzk.New(conn, "/config/myapp"),
         func(prev, curr Config) error {
             log.Printf("config updated: %+v", curr)
             return nil
@@ -52,13 +54,12 @@ func main() {
 }
 ```
 
-## Requirements
+## Setup
 
-A running Consul agent. By default connects to `localhost:8500`.
-
-Configure via environment variables:
+Create the ZooKeeper node before use:
 
 ```bash
-export CONSUL_HTTP_ADDR=consul.example.com:8500
-export CONSUL_HTTP_TOKEN=your-acl-token
+zkCli.sh
+create /config ""
+create /config/myapp '{"port": 8080, "host": "localhost"}'
 ```

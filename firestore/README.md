@@ -1,11 +1,11 @@
-# flux/pkg/firestore
+# flux/firestore
 
 Firestore watcher for flux using realtime listeners.
 
 ## Installation
 
 ```bash
-go get github.com/zoobzio/flux/pkg/firestore
+go get github.com/zoobzio/flux/firestore
 ```
 
 ## Usage
@@ -19,7 +19,7 @@ import (
 
     "cloud.google.com/go/firestore"
     "github.com/zoobzio/flux"
-    fluxfs "github.com/zoobzio/flux/pkg/firestore"
+    fluxfs "github.com/zoobzio/flux/firestore"
 )
 
 type Config struct {

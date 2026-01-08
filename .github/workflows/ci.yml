@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.23', '1.24', '1.25']
+        go-version: ['1.24', '1.25']
 
     steps:
     - uses: actions/checkout@v4
@@ -23,7 +23,7 @@ jobs:
         go-version: ${{ matrix.go-version }}
 
     - name: Run unit tests
-      run: go test -v -race -timeout=5m $(go list ./... | grep -v '/testing/')
+      run: make test-unit
 
   integration:
     name: Integration
@@ -38,7 +38,7 @@ jobs:
         go-version: '1.25'
 
     - name: Run integration tests
-      run: go test -v -race -timeout=5m -tags=integration ./testing/integration/...
+      run: make test-integration
 
   lint:
     name: Lint
@@ -129,10 +129,29 @@ jobs:
     - name: Run benchmarks
       run: |
         echo "### Flux Benchmarks" | tee benchmark_results.txt
-        go test -bench=. -benchmem -benchtime=1s ./testing/benchmarks/... | tee -a benchmark_results.txt
+        make test-bench 2>&1 | tee -a benchmark_results.txt
 
     - name: Upload benchmark results
       uses: actions/upload-artifact@v4
       with:
         name: benchmark-results
         path: benchmark_results.txt
+
+  ci-complete:
+    name: CI Complete
+    runs-on: ubuntu-latest
+    needs: [test, integration, lint, coverage, security, benchmark]
+    if: always()
+    steps:
+    - name: Check job results
+      run: |
+        if [[ "${{ needs.test.result }}" != "success" ]] || \
+           [[ "${{ needs.integration.result }}" != "success" ]] || \
+           [[ "${{ needs.lint.result }}" != "success" ]] || \
+           [[ "${{ needs.coverage.result }}" != "success" ]] || \
+           [[ "${{ needs.security.result }}" != "success" ]] || \
+           [[ "${{ needs.benchmark.result }}" != "success" ]]; then
+          echo "One or more jobs failed"
+          exit 1
+        fi
+        echo "All CI jobs completed successfully"

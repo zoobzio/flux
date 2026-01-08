@@ -1,11 +1,11 @@
-# flux/pkg/file
+# flux/redis
 
-File watcher for flux using fsnotify.
+Redis watcher for flux using keyspace notifications.
 
 ## Installation
 
 ```bash
-go get github.com/zoobzio/flux/pkg/file
+go get github.com/zoobzio/flux/redis
 ```
 
 ## Usage
@@ -17,8 +17,9 @@ import (
     "context"
     "log"
 
+    "github.com/redis/go-redis/v9"
     "github.com/zoobzio/flux"
-    "github.com/zoobzio/flux/pkg/file"
+    fluxredis "github.com/zoobzio/flux/redis"
 )
 
 type Config struct {
@@ -29,8 +30,12 @@ type Config struct {
 func main() {
     ctx := context.Background()
 
+    client := redis.NewClient(&redis.Options{
+        Addr: "localhost:6379",
+    })
+
     capacitor := flux.New[Config](
-        file.New("/etc/myapp/config.json"),
+        fluxredis.New(client, "myapp:config"),
         func(prev, curr Config) error {
             log.Printf("config updated: %+v", curr)
             return nil
@@ -48,4 +53,14 @@ func main() {
 
 ## Requirements
 
-None - uses fsnotify which works on Linux, macOS, and Windows.
+Redis must have keyspace notifications enabled:
+
+```bash
+redis-cli CONFIG SET notify-keyspace-events KEA
+```
+
+Or in `redis.conf`:
+
+```
+notify-keyspace-events KEA
+```
