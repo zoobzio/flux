@@ -9,8 +9,8 @@ use (
 	./kubernetes
 	./nats
 	./redis
-	./zookeeper
 	./testing
 	./testing/benchmarks
 	./testing/integration
+	./zookeeper
 )

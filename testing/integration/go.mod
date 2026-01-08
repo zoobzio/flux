@@ -76,9 +76,9 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	github.com/zoobzio/capitan v0.1.0 // indirect
-	github.com/zoobzio/clockz v0.0.2 // indirect
-	github.com/zoobzio/pipz v0.1.3 // indirect
+	github.com/zoobzio/capitan v1.0.0 // indirect
+	github.com/zoobzio/clockz v1.0.0 // indirect
+	github.com/zoobzio/pipz v1.0.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.54.0 // indirect
 	go.opentelemetry.io/otel v1.39.0 // indirect
