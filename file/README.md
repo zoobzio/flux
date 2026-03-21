@@ -5,7 +5,7 @@ File watcher for flux using fsnotify.
 ## Installation
 
 ```bash
-go get github.com/zoobzio/flux/file
+go get github.com/zoobz-io/flux/file
 ```
 
 ## Usage
@@ -17,8 +17,8 @@ import (
     "context"
     "log"
 
-    "github.com/zoobzio/flux"
-    "github.com/zoobzio/flux/file"
+    "github.com/zoobz-io/flux"
+    "github.com/zoobz-io/flux/file"
 )
 
 type Config struct {

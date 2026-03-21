@@ -1,4 +1,4 @@
-module github.com/zoobzio/flux/testing/integration
+module github.com/zoobz-io/flux/testing/integration
 
 go 1.24.0
 
@@ -6,9 +6,9 @@ require (
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/redis v0.40.0
-	github.com/zoobzio/flux v0.0.0-00010101000000-000000000000
-	github.com/zoobzio/flux/file v0.0.0-00010101000000-000000000000
-	github.com/zoobzio/flux/redis v0.0.0-00010101000000-000000000000
+	github.com/zoobz-io/flux v0.0.0-00010101000000-000000000000
+	github.com/zoobz-io/flux/file v0.0.0-00010101000000-000000000000
+	github.com/zoobz-io/flux/redis v0.0.0-00010101000000-000000000000
 	k8s.io/api v0.33.1
 	k8s.io/apimachinery v0.33.1
 	k8s.io/client-go v0.33.1
@@ -76,9 +76,9 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	github.com/zoobzio/capitan v1.0.0 // indirect
-	github.com/zoobzio/clockz v1.0.0 // indirect
-	github.com/zoobzio/pipz v1.0.4 // indirect
+	github.com/zoobz-io/capitan v1.0.2 // indirect
+	github.com/zoobz-io/clockz v1.0.2 // indirect
+	github.com/zoobz-io/pipz v1.0.5 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.54.0 // indirect
 	go.opentelemetry.io/otel v1.39.0 // indirect
@@ -107,10 +107,10 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-replace github.com/zoobzio/flux => ../../
+replace github.com/zoobz-io/flux => ../../
 
-replace github.com/zoobzio/flux/file => ../../file
+replace github.com/zoobz-io/flux/file => ../../file
 
-replace github.com/zoobzio/flux/redis => ../../redis
+replace github.com/zoobz-io/flux/redis => ../../redis
 
-replace github.com/zoobzio/flux/kubernetes => ../../kubernetes
+replace github.com/zoobz-io/flux/kubernetes => ../../kubernetes

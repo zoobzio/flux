@@ -1,6 +1,6 @@
 package flux
 
-import "github.com/zoobzio/capitan"
+import "github.com/zoobz-io/capitan"
 
 // Capacitor lifecycle signals.
 var (

@@ -5,7 +5,7 @@ Consul KV watcher for flux using blocking queries.
 ## Installation
 
 ```bash
-go get github.com/zoobzio/flux/consul
+go get github.com/zoobz-io/flux/consul
 ```
 
 ## Usage
@@ -18,8 +18,8 @@ import (
     "log"
 
     "github.com/hashicorp/consul/api"
-    "github.com/zoobzio/flux"
-    fluxconsul "github.com/zoobzio/flux/consul"
+    "github.com/zoobz-io/flux"
+    fluxconsul "github.com/zoobz-io/flux/consul"
 )
 
 type Config struct {

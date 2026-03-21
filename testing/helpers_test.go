@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zoobzio/flux"
+	"github.com/zoobz-io/flux"
 )
 
 func TestTestConfig_Validate(t *testing.T) {

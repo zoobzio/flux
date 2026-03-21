@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zoobzio/clockz"
-	"github.com/zoobzio/pipz"
+	"github.com/zoobz-io/clockz"
+	"github.com/zoobz-io/pipz"
 )
 
 // ComposeConfig is a test config for Compose tests.

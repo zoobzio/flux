@@ -1,13 +1,13 @@
-module github.com/zoobzio/flux
+module github.com/zoobz-io/flux
 
 go 1.24.0
 
 toolchain go1.25.0
 
 require (
-	github.com/zoobzio/capitan v1.0.0
-	github.com/zoobzio/clockz v1.0.0
-	github.com/zoobzio/pipz v1.0.4
+	github.com/zoobz-io/capitan v1.0.2
+	github.com/zoobz-io/clockz v1.0.2
+	github.com/zoobz-io/pipz v1.0.5
 	gopkg.in/yaml.v3 v3.0.1
 )
 

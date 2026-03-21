@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/zoobzio/flux"
+	"github.com/zoobz-io/flux"
 )
 
 type benchConfig struct {
@@ -35,8 +35,7 @@ func BenchmarkCapacitor_ProcessSingle(b *testing.B) {
 	capacitor := flux.New[benchConfig](
 		flux.NewSyncChannelWatcher(ch),
 		func(_ context.Context, _, _ benchConfig) error { return nil },
-		flux.WithSyncMode[benchConfig](),
-	)
+	).SyncMode()
 
 	ctx := context.Background()
 	if err := capacitor.Start(ctx); err != nil {
@@ -64,8 +63,7 @@ func BenchmarkCapacitor_FullPipeline(b *testing.B) {
 			lastApplied = cfg.Value
 			return nil
 		},
-		flux.WithSyncMode[benchConfig](),
-	)
+	).SyncMode()
 
 	ctx := context.Background()
 	if err := capacitor.Start(ctx); err != nil {
@@ -96,8 +94,7 @@ func BenchmarkCapacitor_StateTransitions(b *testing.B) {
 	capacitor := flux.New[benchConfig](
 		flux.NewSyncChannelWatcher(ch),
 		func(_ context.Context, _, _ benchConfig) error { return nil },
-		flux.WithSyncMode[benchConfig](),
-	)
+	).SyncMode()
 
 	ctx := context.Background()
 	if err := capacitor.Start(ctx); err != nil {

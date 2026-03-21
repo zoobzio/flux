@@ -1,4 +1,4 @@
-module github.com/zoobzio/flux/kubernetes
+module github.com/zoobz-io/flux/kubernetes
 
 go 1.24.0
 
@@ -50,4 +50,4 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-replace github.com/zoobzio/flux => ../
+replace github.com/zoobz-io/flux => ../

@@ -1,13 +1,13 @@
 # flux
 
-[![CI Status](https://github.com/zoobzio/flux/workflows/CI/badge.svg)](https://github.com/zoobzio/flux/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/zoobzio/flux/graph/badge.svg?branch=main)](https://codecov.io/gh/zoobzio/flux)
-[![Go Report Card](https://goreportcard.com/badge/github.com/zoobzio/flux)](https://goreportcard.com/report/github.com/zoobzio/flux)
-[![CodeQL](https://github.com/zoobzio/flux/workflows/CodeQL/badge.svg)](https://github.com/zoobzio/flux/security/code-scanning)
-[![Go Reference](https://pkg.go.dev/badge/github.com/zoobzio/flux.svg)](https://pkg.go.dev/github.com/zoobzio/flux)
-[![License](https://img.shields.io/github/license/zoobzio/flux)](LICENSE)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/zoobzio/flux)](go.mod)
-[![Release](https://img.shields.io/github/v/release/zoobzio/flux)](https://github.com/zoobzio/flux/releases)
+[![CI Status](https://github.com/zoobz-io/flux/workflows/CI/badge.svg)](https://github.com/zoobz-io/flux/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/zoobz-io/flux/graph/badge.svg?branch=main)](https://codecov.io/gh/zoobz-io/flux)
+[![Go Report Card](https://goreportcard.com/badge/github.com/zoobz-io/flux)](https://goreportcard.com/report/github.com/zoobz-io/flux)
+[![CodeQL](https://github.com/zoobz-io/flux/workflows/CodeQL/badge.svg)](https://github.com/zoobz-io/flux/security/code-scanning)
+[![Go Reference](https://pkg.go.dev/badge/github.com/zoobz-io/flux.svg)](https://pkg.go.dev/github.com/zoobz-io/flux)
+[![License](https://img.shields.io/github/license/zoobz-io/flux)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/zoobz-io/flux)](go.mod)
+[![Release](https://img.shields.io/github/v/release/zoobz-io/flux)](https://github.com/zoobz-io/flux/releases)
 
 Reactive configuration synchronization for Go.
 
@@ -79,7 +79,7 @@ Same guarantees: validate first, reject invalid, retain previous, call back with
 ## Install
 
 ```bash
-go get github.com/zoobzio/flux
+go get github.com/zoobz-io/flux
 ```
 
 Requires Go 1.24+.
@@ -94,8 +94,8 @@ import (
     "errors"
     "log"
 
-    "github.com/zoobzio/flux"
-    "github.com/zoobzio/flux/file"
+    "github.com/zoobz-io/flux"
+    "github.com/zoobz-io/flux/file"
 )
 
 type Config struct {
@@ -148,7 +148,7 @@ func main() {
 | Pluggable Providers | File, Redis, Consul, etcd, NATS, Kubernetes, ZooKeeper, Firestore | [Providers](docs/3.guides/2.providers.md) |
 | Validation Pipeline | Type-safe validation with automatic rejection and rollback | [Architecture](docs/2.learn/3.architecture.md) |
 | Debouncing | Configurable delay to batch rapid changes | [Best Practices](docs/3.guides/4.best-practices.md) |
-| Signal Observability | State changes and errors via [capitan](https://github.com/zoobzio/capitan) | [Fields](docs/5.reference/2.fields.md) |
+| Signal Observability | State changes and errors via [capitan](https://github.com/zoobz-io/capitan) | [Fields](docs/5.reference/2.fields.md) |
 | Testing Utilities | Sync mode and channel watchers for deterministic tests | [Testing](docs/3.guides/1.testing.md) |
 
 ## Why flux?
@@ -157,7 +157,7 @@ func main() {
 - **Four-state machine** — Loading, Healthy, Degraded, Empty with clear transitions
 - **Multi-source composition** — Merge configs from files, Redis, Kubernetes, environment
 - **Pluggable providers** — File, Redis, Consul, etcd, NATS, Kubernetes, ZooKeeper, Firestore
-- **Observable** — [capitan](https://github.com/zoobzio/capitan) signals for state changes and failures
+- **Observable** — [capitan](https://github.com/zoobz-io/capitan) signals for state changes and failures
 - **Testable** — Sync mode and channel watchers for deterministic tests
 
 ## Configuration as a Service

@@ -65,7 +65,7 @@ changelog:
 
 release:
   github:
-    owner: zoobzio
+    owner: zoobz-io
     name: flux
 
   name_template: "{{ .ProjectName }} v{{ .Version }}"
@@ -81,7 +81,7 @@ release:
     ### Installation
 
     ```bash
-    go get github.com/zoobzio/flux@v{{ .Version }}
+    go get github.com/zoobz-io/flux@v{{ .Version }}
     ```
 
     ### Requirements
@@ -90,7 +90,7 @@ release:
   footer: |
     ---
 
-    **Full Documentation:** https://github.com/zoobzio/flux/tree/v{{ .Version }}
+    **Full Documentation:** https://github.com/zoobz-io/flux/tree/v{{ .Version }}
 
     Thanks to all contributors!
 
