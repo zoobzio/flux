@@ -16,10 +16,6 @@ coverage.out
 # Dependency directories
 vendor/
 
-# Go workspace
-go.work
-go.work.sum
-
 # IDE
 .idea/
 .vscode/
@@ -31,6 +27,13 @@ go.work.sum
 .DS_Store
 Thumbs.db
 
+# Profiling
+*.prof
+*.pprof
+
 # Build output
 /bin/
 /dist/
+
+# Claude
+.claude/

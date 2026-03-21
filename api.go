@@ -87,9 +87,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/zoobzio/capitan"
-	"github.com/zoobzio/clockz"
-	"github.com/zoobzio/pipz"
+	"github.com/zoobz-io/capitan"
+	"github.com/zoobz-io/clockz"
+	"github.com/zoobz-io/pipz"
 )
 
 // DefaultDebounce is the default debounce duration for change processing.

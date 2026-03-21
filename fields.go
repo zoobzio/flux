@@ -1,6 +1,6 @@
 package flux
 
-import "github.com/zoobzio/capitan"
+import "github.com/zoobz-io/capitan"
 
 // Field keys for Capacitor events.
 var (

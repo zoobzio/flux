@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zoobzio/flux/file"
+	"github.com/zoobz-io/flux/file"
 )
 
 func TestFileWatcher_EmitsInitialContents(t *testing.T) {

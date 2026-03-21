@@ -5,7 +5,7 @@ Redis watcher for flux using keyspace notifications.
 ## Installation
 
 ```bash
-go get github.com/zoobzio/flux/redis
+go get github.com/zoobz-io/flux/redis
 ```
 
 ## Usage
@@ -18,8 +18,8 @@ import (
     "log"
 
     "github.com/redis/go-redis/v9"
-    "github.com/zoobzio/flux"
-    fluxredis "github.com/zoobzio/flux/redis"
+    "github.com/zoobz-io/flux"
+    fluxredis "github.com/zoobz-io/flux/redis"
 )
 
 type Config struct {

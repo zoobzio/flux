@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/zoobzio/pipz"
+	"github.com/zoobz-io/pipz"
 )
 
 // Internal identities for reliability options.

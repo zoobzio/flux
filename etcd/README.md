@@ -5,7 +5,7 @@ etcd watcher for flux using the native Watch API.
 ## Installation
 
 ```bash
-go get github.com/zoobzio/flux/etcd
+go get github.com/zoobz-io/flux/etcd
 ```
 
 ## Usage
@@ -19,8 +19,8 @@ import (
     "time"
 
     clientv3 "go.etcd.io/etcd/client/v3"
-    "github.com/zoobzio/flux"
-    fluxetcd "github.com/zoobzio/flux/etcd"
+    "github.com/zoobz-io/flux"
+    fluxetcd "github.com/zoobz-io/flux/etcd"
 )
 
 type Config struct {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zoobzio/flux"
+	"github.com/zoobz-io/flux"
 )
 
 // TestConfig is a standard configuration type for testing flux capacitors.

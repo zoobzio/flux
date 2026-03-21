@@ -5,7 +5,7 @@ ZooKeeper watcher for flux using the native Watch API.
 ## Installation
 
 ```bash
-go get github.com/zoobzio/flux/zookeeper
+go get github.com/zoobz-io/flux/zookeeper
 ```
 
 ## Usage
@@ -19,8 +19,8 @@ import (
     "time"
 
     "github.com/go-zookeeper/zk"
-    "github.com/zoobzio/flux"
-    fluxzk "github.com/zoobzio/flux/zookeeper"
+    "github.com/zoobz-io/flux"
+    fluxzk "github.com/zoobz-io/flux/zookeeper"
 )
 
 type Config struct {

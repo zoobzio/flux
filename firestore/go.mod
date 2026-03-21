@@ -1,4 +1,4 @@
-module github.com/zoobzio/flux/firestore
+module github.com/zoobz-io/flux/firestore
 
 go 1.24.0
 
@@ -87,4 +87,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/zoobzio/flux => ../
+replace github.com/zoobz-io/flux => ../

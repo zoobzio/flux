@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zoobzio/flux"
-	"github.com/zoobzio/flux/file"
+	"github.com/zoobz-io/flux"
+	"github.com/zoobz-io/flux/file"
 )
 
 type appConfig struct {

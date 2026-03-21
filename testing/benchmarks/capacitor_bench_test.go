@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/zoobzio/flux"
+	"github.com/zoobz-io/flux"
 )
 
 type benchConfig struct {
